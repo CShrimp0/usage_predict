@@ -1,0 +1,75 @@
+{
+  "script_name": "train_mae.py",
+  "script_version": "3.0",
+  "timestamp": "20251226_182739",
+  "description": "Optimized training with MAE loss, gradient clipping, and cosine annealing",
+  "device": "cuda",
+  "world_size": 1,
+  "use_ddp": false,
+  "gpu_names": [
+    "NVIDIA GeForce RTX 4090",
+    "NVIDIA GeForce RTX 4090",
+    "NVIDIA GeForce RTX 4090",
+    "NVIDIA GeForce RTX 4090",
+    "NVIDIA GeForce RTX 4090",
+    "NVIDIA GeForce RTX 4090"
+  ],
+  "cuda_version": "12.8",
+  "pytorch_version": "2.9.1+cu128",
+  "dataset": {
+    "image_dir": "/home/szdx/LNX/data/TA/Healthy/Images",
+    "excel_path": "/home/szdx/LNX/data/TA/characteristics.xlsx",
+    "total_samples": 3092,
+    "train_samples": 2211,
+    "val_samples": 251,
+    "test_samples": 630,
+    "train_subjects": 734,
+    "val_subjects": 82,
+    "test_subjects": 205,
+    "total_subjects": 1021,
+    "test_size": 0.2,
+    "val_size": 0.1,
+    "random_seed": 42,
+    "split_method": "by_subject_id",
+    "data_leakage_prevention": true
+  },
+  "model": {
+    "architecture": "resnet50",
+    "pretrained": true,
+    "dropout": 0.5,
+    "output_dim": 1,
+    "task": "age_regression"
+  },
+  "training": {
+    "loss_function": "MAE (L1Loss)",
+    "optimizer": "AdamW",
+    "optimizer_params": {
+      "betas": [
+        0.9,
+        0.999
+      ]
+    },
+    "lr_scheduler": "CosineAnnealingLR",
+    "scheduler_params": {
+      "T_max": 500,
+      "eta_min": 1e-07
+    },
+    "warmup_epochs": 5,
+    "max_grad_norm": 1.0,
+    "epochs": 500,
+    "patience": 100,
+    "batch_size": 32,
+    "effective_batch_size": 32,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0001,
+    "num_workers": 8,
+    "plot_interval": 10
+  },
+  "optimizations": {
+    "gradient_clipping": true,
+    "warmup": true,
+    "early_stopping": true,
+    "cosine_annealing": true
+  },
+  "output_dir": "./outputs"
+}
