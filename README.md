@@ -1,60 +1,59 @@
-# 超声图像年龄预测项目
+# 超声图像年龄预测（usage_predict）
 
-基于深度学习的超声图像年龄预测系统，使用ResNet50等多种架构进行训练。
+简洁、可复现的超声图像年龄回归训练框架，支持单/多GPU训练、年龄分层抽样、CLAHE 预处理、Top‑3 checkpoint 保存与可复现的命令化实验。
 
 ## 🚀 快速开始
 
-### 环境配置
+### 环境
 ```bash
+# 创建并激活环境
+conda create -n us python=3.10 -y
+conda activate us
+
 # 安装依赖
 pip install -r requirements.txt
-
-# 配置Python环境
-conda activate us
 ```
 
-### 训练模型
+### 数据准备
+- 将图像放入 `data/TA/Healthy/Images`（或在命令行指定 `--image-dir`）
+- Excel 标签文件放入 `data/TA/characteristics.xlsx`（或用 `--excel-path` 指定）
+
+### Baseline 训练（完整示例）
 ```bash
-# 单GPU训练
-python train_mae.py --epochs 100 --batch-size 32
-
-# 多GPU训练 (6卡)
-torchrun --nproc_per_node=6 train_mae.py --batch-size 32
-
-# 使用年龄分层抽样
-python train_mae.py --use-age-stratify --epochs 100
-
-# 256分辨率训练
-python train_mae.py --image-size 256
-
-# 集成训练（6个模型并行）
-python train_mae.py --ensemble
+CUDA_VISIBLE_DEVICES=0 python train.py \
+  --model resnet50 \
+  --batch-size 32 \
+  --dropout 0.5 \
+  --lr 0.0001 \
+  --weight-decay 0.0001 \
+  --loss mae \
+  --epochs 500 \
+  --patience 100 \
+  --clahe 0 \
+  --image-size 224 \
+  --age-bin-width 10 \
+  --seed 42 \
+  --num-workers 8
 ```
+
+**注意**：默认不启用水平翻转；需要测试时加 `--use-horizontal-flip`。
 
 ### 评估模型
 ```bash
-# 评估模型
-python evaluate.py --model-path outputs/run_xxx/best_model.pth
-
-# 集成预测
-python predict_ensemble.py
+# 使用独立脚本评估某个 checkpoint
+python evaluate.py --model-path outputs/run_xxx/best_model.pth --excel-path data/TA/characteristics.xlsx
 ```
 
-## 📁 项目结构
-
+## 📁 项目结构（简化）
 ```
 usage_predict/
-├── train_mae.py          # 统一训练脚本（支持单模型/集成/DDP）
-├── dataset.py            # 数据集加载（支持年龄分层抽样）
-├── model.py              # 模型定义
-├── evaluate.py           # 模型评估
-├── predict_ensemble.py   # 集成预测
-├── requirements.txt      # Python依赖
-├── docs/                 # 详细文档
-├── scripts/              # 工具脚本
-├── results/              # 训练结果（图表、摘要、最佳配置）
-├── outputs/              # 完整训练输出（不上传Git）
-└── data/                 # 数据集（不上传Git）
+├─ train.py            # 主训练脚本（参数化、支持DDP）
+├─ dataset.py          # 数据集与变换（CLAHE、年龄分层）
+├─ model.py            # 模型定义与构造器
+├─ evaluate.py         # 单独评估脚本（不在train结束自动运行）
+├─ requirements.txt
+├─ scripts/            # 辅助脚本（可视化/分析等）
+└─ outputs/            # 训练产物（每次run的文件夹）
 ```
 
 ## 📊 最佳模型
@@ -97,16 +96,16 @@ python scripts/plot_age_error.py
 ## 🎯 核心特性
 
 ### 数据增强
-- ✅ RandomRotation(±10°)
+- ✅ RandomRotation(±15°)
 - ✅ ColorJitter(亮度/对比度 ±0.2)
-- ❌ 无水平翻转（医学图像特性）
+- ⚠ 水平翻转：默认**禁用**（可用 `--use-horizontal-flip` 启用，建议在医学场景谨慎评估）
 
 ### 训练策略
-- **损失函数**: MAE/MSE/SmoothL1/Huber可选
-- **优化器**: Adam (lr=0.001)
-- **学习率调度**: CosineAnnealingLR
-- **数据划分**: 按subject ID分组（防止数据泄漏）
-- **年龄分层**: 支持按10岁分组的分层抽样
+- **损失函数**: MAE/MSE/SmoothL1/Huber 可选
+- **优化器**: AdamW（默认 lr=1e-4）
+- **学习率调度**: CosineAnnealingLR（支持线性 warmup，默认 warmup 5 epochs）
+- **数据划分**: 按 subject ID 分组（防止数据泄漏）
+- **年龄分层**: 支持按 10 岁分组的分层抽样（默认启用）
 
 ### 模型架构
 - ResNet50 (默认)
@@ -115,19 +114,18 @@ python scripts/plot_age_error.py
 - MobileNetV3-Large
 - RegNet
 
-## 📈 性能记录
+## 📈 历史与近期结果
+- **近期最佳（迭代记录）**：Dropout=0.6, Val MAE **7.016**（run_20260106_161415）
+- Baseline (dropout=0.5, no flip): Val MAE **7.050**（run_20260106_154254）
+- +CLAHE: Val MAE **7.120**（run_20260106_154708）
 
-| 模型 | MAE | 训练日期 | 备注 |
-|------|-----|---------|------|
-| ResNet50 | **6.67** | 2025-12-26 | 🏆 最佳（无翻转） |
-| ResNet50 | 6.69 | 2025-12-25 | 含翻转 |
-| ResNet50 | 6.72 | 2025-12-26 | 256分辨率 |
+> 注：`config.json` 中会保存每次运行的全部参数，所有对比请以 `config.json` 为准。
 
 ## 💡 常见问题
 
 **Q: 如何继续训练？**
 ```bash
-python train_mae.py --resume outputs/run_xxx/checkpoint_epoch_50.pth
+python train.py --resume outputs/run_xxx/checkpoint_epoch_50.pth
 ```
 
 **Q: 如何查看训练历史？**
@@ -137,12 +135,12 @@ cat outputs/run_xxx/history.json
 
 **Q: 如何使用不同损失函数？**
 ```bash
-python train_mae.py --loss mse  # 或 smoothl1, huber
+python train.py --loss mse  # 或 smoothl1, huber
 ```
 
 **Q: 如何调整学习率？**
 ```bash
-python train_mae.py --lr 0.0001
+python train.py --lr 0.0001
 ```
 
 ## 📞 技术支持
@@ -153,5 +151,5 @@ python train_mae.py --lr 0.0001
 
 ---
 
-**最后更新**: 2025-12-29  
-**版本**: v1.0
+**最后更新**: 2026-01-07  
+**版本**: v1.1
