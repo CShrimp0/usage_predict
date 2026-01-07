@@ -1,0 +1,427 @@
+# ============================================================================
+# 超参数优化实验计划 - 精简版
+# 创建日期: 2026-01-06
+# 总实验数: 31个 (10个阶段)
+# 
+# ⚙️ 系统配置:
+# CPU: 2×Intel Xeon Gold 6530 (128线程)
+# 内存: 754GB
+# GPU: 6×RTX 4090
+# 
+# 📝 新的参数约定:
+# - 年龄分层抽样: 已内置默认启用，无需指定 --use-age-stratify
+# - CLAHE控制: --clahe 0 (关闭) 或 --clahe 1 (启用，默认)
+# - num-workers: 默认8，无需指定
+# 
+# 💡 执行顺序: 阶段1→2→3→4→5 (核心) → 阶段6-9 (微调) → 阶段10 (集成)
+# ============================================================================
+
+# ============================================================================
+# 阶段1: BASELINE + CLAHE测试 (2个实验，预计2-3小时)
+# 说明: 建立基线，测试CLAHE效果
+# ============================================================================
+
+# BASELINE: 不使用CLAHE
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.5 \
+    --lr 0.0001 \
+    --weight-decay 0.0001 \
+    --loss mae \
+    --clahe 0 \
+    --seed 42
+
+# 实验1.1: 使用CLAHE (推荐⭐⭐⭐⭐⭐)
+CUDA_VISIBLE_DEVICES=1 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.5 \
+    --lr 0.0001 \
+    --weight-decay 0.0001 \
+    --loss mae \
+    --clahe 1 \
+    --seed 42
+
+# ============================================================================
+# 阶段2: Dropout系统测试 (5个实验，可6GPU并行，预计2-3小时)
+# 说明: 找到最优Dropout值 (预期0.3或0.4)
+# ============================================================================
+
+# 实验2.1: Dropout=0.2
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.2 \
+    --lr 0.0001 \
+    --weight-decay 0.0001 \
+    --loss mae \
+    --seed 42
+
+# 实验2.2: Dropout=0.3 (推荐⭐⭐⭐⭐)
+CUDA_VISIBLE_DEVICES=1 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.0001 \
+    --loss mae \
+    --seed 42
+
+# 实验2.3: Dropout=0.4
+CUDA_VISIBLE_DEVICES=2 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.4 \
+    --lr 0.0001 \
+    --weight-decay 0.0001 \
+    --loss mae \
+    --seed 42
+
+# 实验2.4: Dropout=0.6
+CUDA_VISIBLE_DEVICES=3 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.6 \
+    --lr 0.0001 \
+    --weight-decay 0.0001 \
+    --loss mae \
+    --seed 42
+
+# 实验2.5: Dropout=0.7
+CUDA_VISIBLE_DEVICES=4 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.7 \
+    --lr 0.0001 \
+    --weight-decay 0.0001 \
+    --loss mae \
+    --seed 42
+
+# ============================================================================
+# 阶段3: Weight Decay优化 (3个实验，预计2-3小时)
+# 说明: 结合阶段2最优Dropout (假设0.3)
+# ============================================================================
+
+# 实验3.1: WeightDecay=1e-5 (推荐⭐⭐⭐⭐)
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --seed 42
+
+# 实验3.2: WeightDecay=5e-5
+CUDA_VISIBLE_DEVICES=1 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00005 \
+    --loss mae \
+    --seed 42
+
+# 实验3.3: WeightDecay=1e-3
+CUDA_VISIBLE_DEVICES=2 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.001 \
+    --loss mae \
+    --seed 42
+
+# ============================================================================
+# 阶段4: 模型架构对比 (6个实验，强烈推荐6GPU并行，预计2-3小时)
+# 说明: 找到最适合的模型架构
+# ============================================================================
+
+# 实验4.1: EfficientNet-B0 (推荐⭐⭐⭐⭐)
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --model efficientnet_b0 \
+    --batch-size 96 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --seed 42
+
+# 实验4.2: EfficientNet-B1 (推荐⭐⭐⭐⭐⭐)
+CUDA_VISIBLE_DEVICES=1 python train.py \
+    --model efficientnet_b1 \
+    --batch-size 96 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --image-size 240 \
+    --seed 42
+
+# 实验4.3: EfficientNet-B2
+CUDA_VISIBLE_DEVICES=2 python train.py \
+    --model efficientnet_b2 \
+    --batch-size 64 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --image-size 260 \
+    --seed 42
+
+# 实验4.4: ConvNeXt-Tiny (推荐⭐⭐⭐⭐⭐)
+CUDA_VISIBLE_DEVICES=3 python train.py \
+    --model convnext_tiny \
+    --batch-size 64 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --seed 42
+
+# 实验4.5: MobileNetV3
+CUDA_VISIBLE_DEVICES=4 python train.py \
+    --model mobilenet_v3 \
+    --batch-size 96 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --seed 42
+
+# 实验4.6: RegNet
+CUDA_VISIBLE_DEVICES=5 python train.py \
+    --model regnet \
+    --batch-size 64 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --seed 42
+
+# ============================================================================
+# 阶段5: 学习率调优 (3个实验，预计2-3小时)
+# 说明: 基于阶段4最优模型架构
+# ============================================================================
+
+# 实验5.1: LR=5e-5 (保守)
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.3 \
+    --lr 0.00005 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --seed 42
+
+# 实验5.2: LR=2e-4 (激进，推荐⭐⭐⭐⭐)
+CUDA_VISIBLE_DEVICES=1 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.3 \
+    --lr 0.0002 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --seed 42
+
+# 实验5.3: LR=3e-4 (很激进)
+CUDA_VISIBLE_DEVICES=2 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.3 \
+    --lr 0.0003 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --seed 42
+
+# ============================================================================
+# 阶段6: 图像尺寸测试 (2个实验，预计2-3小时)
+# 说明: 测试更大图像尺寸的效果
+# ============================================================================
+
+# 实验6.1: 图像尺寸256
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --image-size 256 \
+    --seed 42
+
+# 实验6.2: 图像尺寸256 + CLAHE (推荐⭐⭐⭐⭐⭐)
+CUDA_VISIBLE_DEVICES=1 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --image-size 256 \
+    --clahe 1 \
+    --seed 42
+
+# ============================================================================
+# 阶段7: 损失函数对比 (3个实验，预计2-3小时)
+# 说明: 评估不同损失函数
+# ============================================================================
+
+# 实验7.1: SmoothL1 Loss
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss smoothl1 \
+    --seed 42
+
+# 实验7.2: Huber Loss
+CUDA_VISIBLE_DEVICES=1 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss huber \
+    --seed 42
+
+# 实验7.3: MSE Loss
+CUDA_VISIBLE_DEVICES=2 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mse \
+    --seed 42
+
+# ============================================================================
+# 阶段8: Batch Size优化 (3个实验，预计2-3小时)
+# 说明: 平衡训练稳定性
+# ============================================================================
+
+# 实验8.1: BatchSize=16 (小批次)
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --model resnet50 \
+    --batch-size 16 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --seed 42
+
+# 实验8.2: BatchSize=64 (中批次)
+CUDA_VISIBLE_DEVICES=1 python train.py \
+    --model resnet50 \
+    --batch-size 64 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --seed 42
+
+# 实验8.3: BatchSize=96 (大批次)
+CUDA_VISIBLE_DEVICES=2 python train.py \
+    --model resnet50 \
+    --batch-size 96 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --seed 42
+
+# ============================================================================
+# 阶段9: 最优配置组合 (3个实验，预计2-3小时)
+# 说明: 基于前8阶段结果，组合最优参数
+# ============================================================================
+
+# 实验9.1: ResNet50 + 最优参数
+CUDA_VISIBLE_DEVICES=0 python train.py \
+    --model resnet50 \
+    --batch-size 32 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --seed 42
+
+# 实验9.2: EfficientNet-B1 + 最优参数 (推荐⭐⭐⭐⭐⭐)
+CUDA_VISIBLE_DEVICES=1 python train.py \
+    --model efficientnet_b1 \
+    --batch-size 96 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --image-size 256 \
+    --clahe 1 \
+    --seed 42
+
+# 实验9.3: ConvNeXt-Tiny + 最优参数 (推荐⭐⭐⭐⭐⭐)
+CUDA_VISIBLE_DEVICES=2 python train.py \
+    --model convnext_tiny \
+    --batch-size 64 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --image-size 256 \
+    --clahe 1 \
+    --seed 42
+
+# ============================================================================
+# 阶段10: 集成学习 (2个实验，预计3-4小时)
+# 说明: 最终冲刺，突破单模型性能上限
+# ============================================================================
+
+# 实验10.1: 3模型集成 (推荐⭐⭐⭐⭐⭐)
+python train.py \
+    --ensemble \
+    --ensemble-models resnet50 efficientnet_b1 convnext_tiny \
+    --ensemble-gpus 0 1 2 \
+    --batch-size 96 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --clahe 1 \
+    --seed 42
+
+# 实验10.2: 6模型全集成 (推荐⭐⭐⭐⭐⭐)
+python train.py \
+    --ensemble \
+    --ensemble-models resnet50 efficientnet_b0 efficientnet_b1 convnext_tiny mobilenet_v3 regnet \
+    --ensemble-gpus 0 1 2 3 4 5 \
+    --batch-size 96 \
+    --dropout 0.3 \
+    --lr 0.0001 \
+    --weight-decay 0.00001 \
+    --loss mae \
+    --clahe 1 \
+    --seed 42
+
+# ============================================================================
+# 💡 使用提示
+# ============================================================================
+# 1. 逐阶段运行，不要一次性启动所有实验
+# 2. 每阶段完成后查看 outputs/run_*/history.json 找到最低Val MAE
+# 3. 后台运行: command1 & command2 & command3 &
+# 4. 监控GPU: watch -n 1 nvidia-smi
+# 5. 查看日志: tail -f outputs/run_YYYYMMDD_HHMMSS/training.log
+#
+# 快速对比所有结果（按MAE排序）:
+# python << 'EOF'
+# import json
+# from pathlib import Path
+# results = []
+# for p in Path('outputs').glob('run_*/history.json'):
+#     with open(p) as f:
+#         h = json.load(f)
+#     results.append((p.parent.name, min(h['val_mae'])))
+# for name, mae in sorted(results, key=lambda x: x[1]):
+#     print(f'{name}: MAE={mae:.3f}')
+# EOF
+# ============================================================================
