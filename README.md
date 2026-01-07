@@ -36,8 +36,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
   --num-workers 8
 ```
 
-**注意**：默认不启用水平翻转；需要测试时加 `--use-horizontal-flip`。
-
 ### 评估模型
 ```bash
 # 使用独立脚本评估某个 checkpoint
@@ -96,9 +94,11 @@ python scripts/plot_age_error.py
 ## 🎯 核心特性
 
 ### 数据增强
-- ✅ RandomRotation(±15°)
+- ✅ RandomRotation(±10°)
+- ✅ RandomHorizontalFlip(p=0.5) - 默认启用
 - ✅ ColorJitter(亮度/对比度 ±0.2)
-- ⚠ 水平翻转：默认**禁用**（可用 `--use-horizontal-flip` 启用，建议在医学场景谨慎评估）
+
+> 注：如需禁用水平翻转，请手动修改 `dataset.py` 第354行
 
 ### 训练策略
 - **损失函数**: MAE/MSE/SmoothL1/Huber 可选

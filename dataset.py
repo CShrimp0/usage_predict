@@ -213,8 +213,7 @@ def stratified_split_by_age(subject_ids, age_dict, test_size=0.2, val_size=0.1,
 
 
 def load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_state=42,
-                image_size=224, use_age_stratify=False, age_bin_width=10, use_clahe=False,
-                use_horizontal_flip=False):
+                image_size=224, use_age_stratify=False, age_bin_width=10, use_clahe=False):
     """
     加载数据集并划分训练、验证、测试集
     
@@ -227,7 +226,6 @@ def load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_stat
         image_size: 图像resize尺寸（默认224）
         use_age_stratify: 是否使用年龄分层抽样（默认False）
         age_bin_width: 年龄分组宽度，仅在use_age_stratify=True时有效（默认10岁）
-        use_horizontal_flip: 是否使用水平翻转增强（默认False）
     
     Returns:
         train_dataset, val_dataset, test_dataset: 训练集、验证集、测试集
@@ -349,8 +347,8 @@ def load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_stat
     # 训练集增强
     train_transforms_list.extend([
         # 旋转角度和水平翻转在这里控制，后续可以测试不同的增强组合
-        transforms.RandomRotation(degrees=15),
-        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomRotation(degrees=10),
+        #transforms.RandomHorizontalFlip(p=0.5),
         transforms.ColorJitter(brightness=0.2, contrast=0.2),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], 

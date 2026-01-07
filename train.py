@@ -88,10 +88,9 @@ def load_dataset_module(image_size=224, use_age_stratify=True, age_bin_width=10,
         )
     
     clahe_info = "，使用CLAHE" if clahe == 1 else ""
-    flip_info = "，使用水平翻转" if use_horizontal_flip else ""
     print(f"使用 {image_size}×{image_size} 分辨率" + 
           (f"，年龄分层抽样（每{age_bin_width}岁）" if use_age_stratify else "") +
-          clahe_info + flip_info)
+          clahe_info)
     
     return configured_load_dataset
 
@@ -554,8 +553,7 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
     
     # 动态加载数据集模块
     # 年龄分层抽样始终启用（已成为默认最佳实践）
-    load_dataset = load_dataset_module(args.image_size, True, args.age_bin_width, args.clahe, 
-                                       getattr(args, 'use_horizontal_flip', False))
+    load_dataset = load_dataset_module(args.image_size, True, args.age_bin_width, args.clahe)
     
     train_dataset, val_dataset, test_dataset = load_dataset(
         args.image_dir, 
@@ -639,8 +637,8 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
                 'clahe_description': 'CLAHE (Contrast Limited Adaptive Histogram Equalization) applied to L channel in LAB color space' if args.clahe == 1 else 'No CLAHE preprocessing',
                 
                 # 数据增强
-                'rotation_degrees': 15,  # 训练时使用的随机旋转角度
-                'horizontal_flip': getattr(args, 'use_horizontal_flip', False),
+                'rotation_degrees': 10,  # 训练时使用的随机旋转角度
+                'horizontal_flip': True,  # 默认启用水平翻转
                 'color_jitter': {
                     'brightness': 0.2,
                     'contrast': 0.2,
@@ -1103,8 +1101,6 @@ if __name__ == '__main__':
                        help='年龄分组宽度（岁）- 年龄分层抽样始终启用')
     parser.add_argument('--clahe', type=int, default=0, choices=[0, 1],
                        help='CLAHE预处理: 0=关闭, 1=启用（默认关闭）')
-    parser.add_argument('--use-horizontal-flip', action='store_true',
-                       help='启用水平翻转数据增强（默认禁用）')
     
     # 模型参数
     parser.add_argument('--model', type=str, default='resnet50', 
