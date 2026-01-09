@@ -56,18 +56,25 @@ usage_predict/
 
 ## 📊 最佳模型
 
-- **训练运行**: run_20251226_182738_noturn
-- **验证集MAE**: 6.67 years
-- **架构**: ResNet50
-- **特点**: 无水平翻转（更适合医学图像）
-- **权重位置**: `outputs/run_20251226_182738_noturn/best_model.pth`
+### 单模态 Baseline
+- **验证集MAE**: 7.04 years
+- **架构**: ResNet50 (ImageNet预训练)
+- **配置**: dropout=0.6, lr=1e-4, seed=42
 
-配置详情见 [`results/best_results/`](results/best_results/)
+### 多模态 Late Fusion（最佳）🏆
+- **验证集MAE**: **6.99 years** (+0.7%)
+- **架构**: ResNet50 + 辅助特征分支
+- **辅助特征**: 性别+BMI+偏度+灰度+清晰度 (6维)
+- **隐藏层维度**: 32
+
+详细消融实验结果见 [ABLATION_RESULTS.md](ABLATION_RESULTS.md)
 
 ## 📚 详细文档
 
 | 文档 | 说明 |
 |------|------|
+| [ABLATION_RESULTS.md](ABLATION_RESULTS.md) | 多模态消融实验结果 |
+| [MULTIMODAL_GUIDE.md](MULTIMODAL_GUIDE.md) | 多模态Late Fusion详细指南 |
 | [docs/TRAINING_GUIDE.md](docs/TRAINING_GUIDE.md) | 训练参数详解和使用指南 |
 | [docs/DATASET_OPTIMIZATION.md](docs/DATASET_OPTIMIZATION.md) | 数据集划分和增强策略 |
 | [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) | 项目结构和文件说明 |
@@ -159,6 +166,18 @@ python train.py --use-aux-features --aux-gender --aux-bmi
 python train.py --use-aux-features --aux-skewness --aux-intensity --aux-clarity
 ```
 
+**消融实验结果**:
+
+| 排名 | 配置 | 辅助特征 | MAE | 相比Baseline |
+|:----:|------|----------|:---:|:------------:|
+| 🥇 1 | 全部特征 | 性别+BMI+偏度+灰度+清晰度 | **6.99** | **+0.7%** |
+| 2 | Baseline | 无 | 7.04 | - |
+| 3 | 全部+hidden64 | 性别+BMI+偏度+灰度+清晰度 | 7.09 | -0.6% |
+| 4 | 仅性别 | 性别 | 7.15 | -1.5% |
+| 5 | 仅偏度 | 偏度 | 7.17 | -1.9% |
+
+> **关键发现**: 只有全部特征组合才能超越baseline，单独特征反而降低性能。详见 [ABLATION_RESULTS.md](ABLATION_RESULTS.md)
+
 **消融实验**:
 ```bash
 # 运行完整消融实验（10个配置）
@@ -167,20 +186,13 @@ bash run_ablation_study.sh
 # 查看结果汇总
 python summarize_ablation_results.py
 ```
-
-**多模态参数说明**:
 - `--use-aux-features`: 启用辅助特征（必选）
 - `--aux-gender`: 使用性别特征
 - `--aux-bmi`: 使用BMI特征
 - `--aux-skewness`: 使用偏度特征
 - `--aux-intensity`: 使用平均灰度特征
 - `--aux-clarity`: 使用清晰度特征
-- `--aux-hidden-dim`: 辅助分支隐藏层维度（默认32）
-
-**预期性能提升**:
-- 相比单模态baseline (MAE ~7.02)
-- 多模态融合预期可达 MAE 6.2-6.4 years
-- 具体提升取决于特征组合
+- `--aux-hidden-dim`: 辅助分支隐藏层维度（默认32，推荐）
 
 **注意事项**:
 - 辅助特征自动从Excel文件读取并标准化（仅使用训练集统计量）
@@ -188,12 +200,13 @@ python summarize_ablation_results.py
 - 图像统计特征实时计算（首次加载较慢）
 - BMI异常值（<10或>60）自动过滤
 
-## 📈 历史与近期结果
-- **近期最佳（迭代记录）**：Dropout=0.6, Val MAE **7.016**（run_20260106_161415）
-- Baseline (dropout=0.5, no flip): Val MAE **7.050**（run_20260106_154254）
-- +CLAHE: Val MAE **7.120**（run_20260106_154708）
+## 📈 数据集统计
 
-> 注：`config.json` 中会保存每次运行的全部参数，所有对比请以 `config.json` 为准。
+**TA肌肉数据集**:
+- **受试者**: 1,021人
+- **图像**: 3,092张
+- **年龄范围**: 0.0 - 88.4 岁
+- **数据划分**: 训练 2,225 / 验证 402 / 测试 465（按受试者，防止泄漏）
 
 ## 💡 常见问题
 
@@ -225,5 +238,5 @@ python train.py --lr 0.0001
 
 ---
 
-**最后更新**: 2026-01-07  
-**版本**: v1.1
+**最后更新**: 2026-01-09  
+**版本**: v2.0 (多模态Late Fusion)
