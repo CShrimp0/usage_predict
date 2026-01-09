@@ -114,6 +114,80 @@ python scripts/plot_age_error.py
 - MobileNetV3-Large
 - RegNet
 
+### 多模态Late Fusion（新功能）🆕
+
+支持融合图像特征与辅助特征进行年龄预测，采用Late Fusion架构：
+
+**架构设计**:
+- **图像分支**: ResNet50 → 2048-dim features
+- **辅助分支**: 辅助特征 → 32-dim hidden (with BN, ReLU, Dropout)
+- **融合层**: Concatenate → 256 → 128 → 1
+
+**支持的辅助特征**:
+- **性别** (2-dim): One-hot编码，Male=[1,0], Female=[0,1]
+- **BMI** (1-dim): 身体质量指数，标准化处理
+- **偏度** (1-dim): 图像灰度分布偏度
+- **平均灰度** (1-dim): 图像平均亮度
+- **清晰度** (1-dim): 拉普拉斯方差，衡量图像锐度
+
+**使用示例**:
+```bash
+# 使用所有辅助特征
+CUDA_VISIBLE_DEVICES=0 python train.py \
+  --model resnet50 \
+  --batch-size 32 \
+  --dropout 0.6 \
+  --lr 0.0001 \
+  --weight-decay 0.0001 \
+  --patience 100 \
+  --clahe 0 \
+  --image-size 224 \
+  --seed 42 \
+  --use-aux-features \
+  --aux-gender \
+  --aux-bmi \
+  --aux-skewness \
+  --aux-intensity \
+  --aux-clarity \
+  --aux-hidden-dim 32 \
+  --output-dir ./outputs/multimodal_all
+
+# 仅使用人口学特征（性别+BMI）
+python train.py --use-aux-features --aux-gender --aux-bmi
+
+# 仅使用图像统计特征
+python train.py --use-aux-features --aux-skewness --aux-intensity --aux-clarity
+```
+
+**消融实验**:
+```bash
+# 运行完整消融实验（10个配置）
+bash run_ablation_study.sh
+
+# 查看结果汇总
+python summarize_ablation_results.py
+```
+
+**多模态参数说明**:
+- `--use-aux-features`: 启用辅助特征（必选）
+- `--aux-gender`: 使用性别特征
+- `--aux-bmi`: 使用BMI特征
+- `--aux-skewness`: 使用偏度特征
+- `--aux-intensity`: 使用平均灰度特征
+- `--aux-clarity`: 使用清晰度特征
+- `--aux-hidden-dim`: 辅助分支隐藏层维度（默认32）
+
+**预期性能提升**:
+- 相比单模态baseline (MAE ~7.02)
+- 多模态融合预期可达 MAE 6.2-6.4 years
+- 具体提升取决于特征组合
+
+**注意事项**:
+- 辅助特征自动从Excel文件读取并标准化（仅使用训练集统计量）
+- 缺失值样本会自动过滤，不影响源数据
+- 图像统计特征实时计算（首次加载较慢）
+- BMI异常值（<10或>60）自动过滤
+
 ## 📈 历史与近期结果
 - **近期最佳（迭代记录）**：Dropout=0.6, Val MAE **7.016**（run_20260106_161415）
 - Baseline (dropout=0.5, no flip): Val MAE **7.050**（run_20260106_154254）

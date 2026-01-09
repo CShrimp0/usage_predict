@@ -416,3 +416,258 @@ def load_dataset_old_interface(base_path, excel_path, test_size=0.2, val_size=0.
         image_size=224,
         use_age_stratify=False
     )
+
+
+# ========== 多模态数据集 ==========
+
+class MultimodalDataset(Dataset):
+    """支持辅助特征的多模态数据集"""
+    
+    def __init__(self, image_paths, ages, transform=None, aux_feature_extractor=None):
+        """
+        Args:
+            image_paths: 图像文件路径列表
+            ages: 对应的年龄标签列表
+            transform: 图像变换
+            aux_feature_extractor: 辅助特征提取器（AuxiliaryFeatureExtractor实例）
+        """
+        self.image_paths = image_paths
+        self.ages = ages
+        self.transform = transform
+        self.aux_feature_extractor = aux_feature_extractor
+        
+        # 过滤缺失辅助特征的样本
+        if aux_feature_extractor is not None and aux_feature_extractor.aux_dim > 0:
+            valid_indices = []
+            valid_subjects = set(aux_feature_extractor.get_valid_subjects())
+            
+            for idx, img_path in enumerate(image_paths):
+                from auxiliary_features import extract_subject_id
+                subject_id = extract_subject_id(img_path)
+                if subject_id in valid_subjects:
+                    valid_indices.append(idx)
+            
+            # 更新路径和标签
+            self.image_paths = [image_paths[i] for i in valid_indices]
+            self.ages = [ages[i] for i in valid_indices]
+            
+            print(f"  过滤后保留 {len(self.image_paths)}/{len(image_paths)} 个样本")
+        
+    def __len__(self):
+        return len(self.image_paths)
+    
+    def __getitem__(self, idx):
+        # 读取图像
+        img_path = self.image_paths[idx]
+        try:
+            image = Image.open(img_path).convert('RGB')
+        except Exception as e:
+            print(f"Error loading {img_path}: {e}")
+            image = Image.new('RGB', (224, 224), (0, 0, 0))
+        
+        age = self.ages[idx]
+        
+        if self.transform:
+            image = self.transform(image)
+        
+        # 提取辅助特征
+        aux_features = None
+        if self.aux_feature_extractor is not None and self.aux_feature_extractor.aux_dim > 0:
+            from auxiliary_features import extract_subject_id
+            subject_id = extract_subject_id(img_path)
+            aux_features = self.aux_feature_extractor.extract_features(subject_id, img_path)
+        
+        # 如果没有辅助特征或提取失败，返回零向量
+        if aux_features is None:
+            aux_features = torch.zeros(1)
+        
+        return image, aux_features, torch.tensor(age, dtype=torch.float32)
+
+
+def load_multimodal_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_state=42,
+                            image_size=224, use_age_stratify=False, age_bin_width=10, use_clahe=False,
+                            use_gender=False, use_bmi=False, use_skewness=False, 
+                            use_intensity=False, use_clarity=False):
+    """
+    加载多模态数据集（图像+辅助特征）
+    
+    Args:
+        image_dir: 图像文件夹路径
+        excel_path: Excel标签文件路径
+        test_size: 测试集占总数据的比例
+        val_size: 验证集占训练数据的比例
+        random_state: 随机种子
+        image_size: 图像resize尺寸（默认224）
+        use_age_stratify: 是否使用年龄分层抽样（默认False）
+        age_bin_width: 年龄分组宽度（默认10岁）
+        use_clahe: 是否使用CLAHE增强
+        use_gender: 是否使用性别特征
+        use_bmi: 是否使用BMI特征
+        use_skewness: 是否使用偏度特征
+        use_intensity: 是否使用平均灰度特征
+        use_clarity: 是否使用清晰度特征
+    
+    Returns:
+        train_dataset, val_dataset, test_dataset, aux_dim: 数据集和辅助特征维度
+    """
+    # 初始化辅助特征提取器
+    aux_feature_extractor = None
+    aux_dim = 0
+    
+    if any([use_gender, use_bmi, use_skewness, use_intensity, use_clarity]):
+        from auxiliary_features import AuxiliaryFeatureExtractor
+        
+        print(f"\n🎯 启用辅助特征:")
+        if use_gender: print("  - 性别 (2-dim)")
+        if use_bmi: print("  - BMI (1-dim)")
+        if use_skewness: print("  - 偏度 (1-dim)")
+        if use_intensity: print("  - 平均灰度 (1-dim)")
+        if use_clarity: print("  - 清晰度 (1-dim)")
+        
+        aux_feature_extractor = AuxiliaryFeatureExtractor(
+            excel_path=excel_path,
+            use_gender=use_gender,
+            use_bmi=use_bmi,
+            use_skewness=use_skewness,
+            use_intensity=use_intensity,
+            use_clarity=use_clarity
+        )
+        aux_dim = aux_feature_extractor.aux_dim
+        print(f"  总维度: {aux_dim}")
+    
+    # 读取Excel标签文件
+    df = pd.read_excel(excel_path)
+    
+    # 建立受试者ID到年龄的映射
+    age_dict = {}
+    
+    # 处理Healthy列
+    healthy_df = df[['Healthy', 'Unnamed: 1']].copy()
+    healthy_df.columns = ['Number', 'Age']
+    healthy_df = healthy_df[1:].dropna()
+    
+    for _, row in healthy_df.iterrows():
+        try:
+            subject_id = str(int(float(row['Number'])))
+            age = float(row['Age'])
+            age_dict[subject_id] = age
+        except (ValueError, TypeError):
+            continue
+    
+    # 处理Pathological列
+    path_df = df[['Pathological', 'Unnamed: 7']].copy()
+    path_df.columns = ['Number', 'Age']
+    path_df = path_df[1:].dropna()
+    
+    for _, row in path_df.iterrows():
+        try:
+            subject_id = str(int(float(row['Number'])))
+            age = float(row['Age'])
+            age_dict[subject_id] = age
+        except (ValueError, TypeError):
+            continue
+    
+    # 获取所有图像路径
+    image_dir = Path(image_dir)
+    all_image_paths = sorted(list(image_dir.glob('*.png')) + list(image_dir.glob('*.jpg')))
+    
+    # 按受试者ID分组图像
+    subject_images = defaultdict(list)
+    for img_path in all_image_paths:
+        parts = img_path.stem.split('_')
+        if len(parts) >= 2:
+            subject_id = parts[1]
+            if subject_id in age_dict:
+                subject_images[subject_id].append(str(img_path))
+    
+    # 过滤有辅助特征的受试者
+    if aux_feature_extractor is not None:
+        valid_subjects_set = set(aux_feature_extractor.get_valid_subjects())
+        subject_images = {sid: imgs for sid, imgs in subject_images.items() 
+                         if sid in valid_subjects_set}
+        print(f"有效受试者: {len(subject_images)} 个")
+    
+    all_subjects = list(subject_images.keys())
+    
+    # 统计信息
+    total_subjects = len(all_subjects)
+    total_images = sum(len(imgs) for imgs in subject_images.values())
+    ages_list = [age_dict[sid] for sid in all_subjects]
+    
+    print(f"找到 {total_subjects} 个受试者，共 {total_images} 张图像")
+    print(f"年龄范围: {min(ages_list):.1f} - {max(ages_list):.1f} 岁")
+    
+    # 划分数据集（按受试者）
+    if use_age_stratify:
+        train_subjects, val_subjects, test_subjects = stratified_split_by_age(
+            all_subjects, age_dict, test_size, val_size, random_state, age_bin_width
+        )
+    else:
+        train_val_subjects, test_subjects = train_test_split(
+            all_subjects, test_size=test_size, random_state=random_state
+        )
+        train_subjects, val_subjects = train_test_split(
+            train_val_subjects, test_size=val_size/(1-test_size), random_state=random_state
+        )
+    
+    # 构建每个集合的图像路径和标签
+    def build_split(subjects):
+        paths = []
+        ages = []
+        for sid in subjects:
+            for img_path in subject_images[sid]:
+                paths.append(img_path)
+                ages.append(age_dict[sid])
+        return paths, ages
+    
+    train_paths, train_ages = build_split(train_subjects)
+    val_paths, val_ages = build_split(val_subjects)
+    test_paths, test_ages = build_split(test_subjects)
+    
+    print(f"训练集: {len(train_paths)} 张图像 ({len(train_subjects)} 受试者)")
+    print(f"验证集: {len(val_paths)} 张图像 ({len(val_subjects)} 受试者)")
+    print(f"测试集: {len(test_paths)} 张图像 ({len(test_subjects)} 受试者)")
+    
+    # 计算辅助特征标准化参数（仅用训练集）
+    if aux_feature_extractor is not None:
+        print("\n计算辅助特征标准化参数（仅使用训练集）...")
+        aux_feature_extractor.set_normalization_params(train_subjects, train_paths)
+    
+    # 定义图像变换（支持可配置的图像尺寸和CLAHE）
+    clahe_info = " + CLAHE增强" if use_clahe else ""
+    print(f"\n使用图像尺寸: {image_size}×{image_size}{clahe_info}")
+    
+    # 构建变换列表
+    train_transforms_list = [transforms.Resize((image_size, image_size))]
+    eval_transforms_list = [transforms.Resize((image_size, image_size))]
+    
+    # 如果使用CLAHE，添加到变换列表
+    if use_clahe:
+        train_transforms_list.append(CLAHETransform(clip_limit=2.0, tile_grid_size=(8, 8)))
+        eval_transforms_list.append(CLAHETransform(clip_limit=2.0, tile_grid_size=(8, 8)))
+    
+    # 训练集增强
+    train_transforms_list.extend([
+        transforms.RandomRotation(degrees=10),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+                           std=[0.229, 0.224, 0.225])
+    ])
+    
+    # 验证集和测试集不增强
+    eval_transforms_list.extend([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+                           std=[0.229, 0.224, 0.225])
+    ])
+    
+    train_transform = transforms.Compose(train_transforms_list)
+    test_transform = transforms.Compose(eval_transforms_list)
+    
+    # 创建数据集
+    train_dataset = MultimodalDataset(train_paths, train_ages, train_transform, aux_feature_extractor)
+    val_dataset = MultimodalDataset(val_paths, val_ages, test_transform, aux_feature_extractor)
+    test_dataset = MultimodalDataset(test_paths, test_ages, test_transform, aux_feature_extractor)
+    
+    return train_dataset, val_dataset, test_dataset, aux_dim

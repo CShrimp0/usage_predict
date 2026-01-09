@@ -164,19 +164,134 @@ class RegNetAgePredictor(nn.Module):
         return self.backbone(x).squeeze(-1)
 
 
-def get_model(model_name='resnet50', pretrained=True, dropout=0.5):
+class FlexibleMultimodalModel(nn.Module):
     """
-    获取模型
+    灵活的多模态模型，支持动态辅助特征维度
+    
+    架构：
+        图像分支：CNN backbone (ResNet/EfficientNet等)
+        辅助分支：全连接层
+        融合层：拼接后预测
+    """
+    
+    def __init__(self, 
+                 backbone='resnet50',
+                 pretrained=True,
+                 aux_input_dim=0,      # 辅助特征维度（0表示纯图像模型）
+                 aux_hidden_dim=32,    # 辅助分支隐藏层维度
+                 dropout=0.5):
+        """
+        Args:
+            backbone: CNN骨干网络名称
+            pretrained: 是否使用预训练权重
+            aux_input_dim: 辅助特征维度（动态计算）
+            aux_hidden_dim: 辅助分支隐藏层大小
+            dropout: Dropout比例
+        """
+        super().__init__()
+        
+        self.aux_input_dim = aux_input_dim
+        self.backbone_name = backbone
+        
+        # ========== 图像分支 ==========
+        if backbone == 'resnet50':
+            self.backbone = models.resnet50(pretrained=pretrained)
+            self.backbone.fc = nn.Identity()  # 移除最后的FC层
+            img_feat_dim = 2048
+        elif backbone == 'resnet34':
+            self.backbone = models.resnet34(pretrained=pretrained)
+            self.backbone.fc = nn.Identity()
+            img_feat_dim = 512
+        elif backbone == 'efficientnet_b0' or backbone == 'efficientnet':
+            self.backbone = models.efficientnet_b0(pretrained=pretrained)
+            self.backbone.classifier = nn.Identity()
+            img_feat_dim = 1280
+        else:
+            # 默认使用ResNet50
+            self.backbone = models.resnet50(pretrained=pretrained)
+            self.backbone.fc = nn.Identity()
+            img_feat_dim = 2048
+        
+        # ========== 辅助特征分支 ==========
+        if aux_input_dim > 0:
+            self.aux_branch = nn.Sequential(
+                nn.Linear(aux_input_dim, aux_hidden_dim),
+                nn.BatchNorm1d(aux_hidden_dim),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout * 0.6),  # 辅助分支用较小dropout
+                nn.Linear(aux_hidden_dim, aux_hidden_dim),
+                nn.BatchNorm1d(aux_hidden_dim),
+                nn.ReLU(inplace=True)
+            )
+            fusion_dim = img_feat_dim + aux_hidden_dim
+        else:
+            self.aux_branch = None
+            fusion_dim = img_feat_dim
+        
+        # ========== 融合预测头 ==========
+        self.fusion_head = nn.Sequential(
+            nn.Linear(fusion_dim, 256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Linear(256, 128),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout * 0.5),
+            nn.Linear(128, 1)
+        )
+    
+    def forward(self, image, aux_features=None):
+        """
+        前向传播
+        
+        Args:
+            image: (B, 3, H, W) 图像张量
+            aux_features: (B, aux_input_dim) 辅助特征，可选
+        
+        Returns:
+            (B,) 年龄预测值
+        """
+        # 提取图像特征
+        img_feat = self.backbone(image)  # (B, img_feat_dim)
+        
+        # 如果有辅助特征，进行融合
+        if self.aux_input_dim > 0 and aux_features is not None:
+            aux_feat = self.aux_branch(aux_features)  # (B, aux_hidden_dim)
+            fused = torch.cat([img_feat, aux_feat], dim=1)  # (B, fusion_dim)
+        else:
+            fused = img_feat
+        
+        # 预测年龄
+        output = self.fusion_head(fused).squeeze(-1)  # (B,)
+        return output
+
+
+def get_model(model_name='resnet50', pretrained=True, dropout=0.5, 
+              aux_input_dim=0, aux_hidden_dim=32):
+    """
+    获取模型（支持多模态）
     
     Args:
         model_name: 模型名称 ('resnet50', 'efficientnet', 'convnext_tiny', 
                     'efficientnet_b1', 'mobilenet_v3', 'regnet')
         pretrained: 是否使用预训练权重
         dropout: Dropout比例
+        aux_input_dim: 辅助特征维度（0表示纯图像模型）
+        aux_hidden_dim: 辅助特征分支隐藏层维度
     
     Returns:
         模型实例
     """
+    # 如果启用多模态，使用FlexibleMultimodalModel
+    if aux_input_dim > 0:
+        return FlexibleMultimodalModel(
+            backbone=model_name,
+            pretrained=pretrained,
+            aux_input_dim=aux_input_dim,
+            aux_hidden_dim=aux_hidden_dim,
+            dropout=dropout
+        )
+    
+    # 否则使用原始模型
     if model_name == 'resnet50':
         return AgePredictor(pretrained=pretrained, dropout=dropout)
     elif model_name == 'efficientnet' or model_name == 'efficientnet_b0':

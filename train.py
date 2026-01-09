@@ -60,39 +60,77 @@ def get_loss_function(loss_type='mae'):
         raise ValueError(f"不支持的损失函数类型: {loss_type}。支持: mae, mse, smoothl1, huber")
 
 
-def load_dataset_module(image_size=224, use_age_stratify=True, age_bin_width=10, clahe=1):
-    """动态加载数据集，支持图像尺寸、年龄分层和CLAHE配置
+def load_dataset_module(image_size=224, use_age_stratify=True, age_bin_width=10, clahe=1,
+                       use_multimodal=False, use_gender=False, use_bmi=False,
+                       use_skewness=False, use_intensity=False, use_clarity=False):
+    """动态加载数据集，支持图像尺寸、年龄分层、CLAHE和多模态配置
     
     Args:
         image_size: 图像尺寸 (224 或 256)
         use_age_stratify: 是否使用年龄分层抽样（默认True）
         age_bin_width: 年龄分组宽度（默认10岁）
         clahe: 是否使用CLAHE增强 (0=关闭, 1=启用)
+        use_multimodal: 是否使用多模态数据集
+        use_gender: 是否使用性别特征
+        use_bmi: 是否使用BMI特征
+        use_skewness: 是否使用偏度特征
+        use_intensity: 是否使用平均灰度特征
+        use_clarity: 是否使用清晰度特征
     
     Returns:
-        配置好的 load_dataset 函数
+        配置好的 load_dataset 函数 和 辅助特征维度
     """
-    from dataset import load_dataset as load_dataset_func
-    
-    def configured_load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_state=42):
-        return load_dataset_func(
-            image_dir=image_dir,
-            excel_path=excel_path,
-            test_size=test_size,
-            val_size=val_size,
-            random_state=random_state,
-            image_size=image_size,
-            use_age_stratify=use_age_stratify,
-            age_bin_width=age_bin_width,
-            use_clahe=(clahe == 1)
-        )
-    
-    clahe_info = "，使用CLAHE" if clahe == 1 else ""
-    print(f"使用 {image_size}×{image_size} 分辨率" + 
-          (f"，年龄分层抽样（每{age_bin_width}岁）" if use_age_stratify else "") +
-          clahe_info)
-    
-    return configured_load_dataset
+    if use_multimodal:
+        from dataset import load_multimodal_dataset
+        
+        def configured_load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_state=42):
+            train_ds, val_ds, test_ds, aux_dim = load_multimodal_dataset(
+                image_dir=image_dir,
+                excel_path=excel_path,
+                test_size=test_size,
+                val_size=val_size,
+                random_state=random_state,
+                image_size=image_size,
+                use_age_stratify=use_age_stratify,
+                age_bin_width=age_bin_width,
+                use_clahe=(clahe == 1),
+                use_gender=use_gender,
+                use_bmi=use_bmi,
+                use_skewness=use_skewness,
+                use_intensity=use_intensity,
+                use_clarity=use_clarity
+            )
+            return train_ds, val_ds, test_ds, aux_dim
+        
+        clahe_info = "，使用CLAHE" if clahe == 1 else ""
+        print(f"使用 {image_size}×{image_size} 分辨率" + 
+              (f"，年龄分层抽样（每{age_bin_width}岁）" if use_age_stratify else "") +
+              clahe_info + "，多模态特征")
+        
+        return configured_load_dataset
+    else:
+        from dataset import load_dataset as load_dataset_func
+        
+        def configured_load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_state=42):
+            train_ds, val_ds, test_ds = load_dataset_func(
+                image_dir=image_dir,
+                excel_path=excel_path,
+                test_size=test_size,
+                val_size=val_size,
+                random_state=random_state,
+                image_size=image_size,
+                use_age_stratify=use_age_stratify,
+                age_bin_width=age_bin_width,
+                use_clahe=(clahe == 1)
+            )
+            return train_ds, val_ds, test_ds, 0
+        
+        clahe_info = "，使用CLAHE" if clahe == 1 else ""
+        print(f"使用 {image_size}×{image_size} 分辨率" + 
+              (f"，年龄分层抽样（每{age_bin_width}岁）" if use_age_stratify else "") +
+              clahe_info)
+        
+        return configured_load_dataset
 
 
 def setup_ddp():
@@ -409,7 +447,7 @@ class AverageMeter:
         self.avg = self.sum / self.count
 
 
-def train_epoch(model, train_loader, criterion, optimizer, device, epoch, is_main_process, max_grad_norm=1.0):
+def train_epoch(model, train_loader, criterion, optimizer, device, epoch, is_main_process, max_grad_norm=1.0, use_aux=False):
     """训练一个epoch"""
     model.train()
     
@@ -421,13 +459,22 @@ def train_epoch(model, train_loader, criterion, optimizer, device, epoch, is_mai
         pbar = tqdm(train_loader, desc=f'Epoch {epoch} [Train]')
     else:
         pbar = train_loader
+    
+    for batch in pbar:
+        if use_aux:
+            images, aux_features, ages = batch
+            images = images.to(device)
+            aux_features = aux_features.to(device)
+            ages = ages.to(device)
+            # 前向传播（多模态）
+            outputs = model(images, aux_features)
+        else:
+            images, ages = batch
+            images = images.to(device)
+            ages = ages.to(device)
+            # 前向传播（单模态）
+            outputs = model(images)
         
-    for images, ages in pbar:
-        images = images.to(device)
-        ages = ages.to(device)
-        
-        # 前向传播
-        outputs = model(images)
         loss = criterion(outputs, ages)
         
         # 计算MAE
@@ -459,7 +506,7 @@ def train_epoch(model, train_loader, criterion, optimizer, device, epoch, is_mai
     return losses.avg, maes.avg, grad_norms.avg
 
 
-def validate(model, val_loader, criterion, device, epoch, is_main_process):
+def validate(model, val_loader, criterion, device, epoch, is_main_process, use_aux=False):
     """验证模型"""
     model.eval()
     
@@ -473,13 +520,22 @@ def validate(model, val_loader, criterion, device, epoch, is_main_process):
             pbar = tqdm(val_loader, desc=f'Epoch {epoch} [Val]')
         else:
             pbar = val_loader
+        
+        for batch in pbar:
+            if use_aux:
+                images, aux_features, ages = batch
+                images = images.to(device)
+                aux_features = aux_features.to(device)
+                ages = ages.to(device)
+                # 前向传播（多模态）
+                outputs = model(images, aux_features)
+            else:
+                images, ages = batch
+                images = images.to(device)
+                ages = ages.to(device)
+                # 前向传播（单模态）
+                outputs = model(images)
             
-        for images, ages in pbar:
-            images = images.to(device)
-            ages = ages.to(device)
-            
-            # 前向传播
-            outputs = model(images)
             loss = criterion(outputs, ages)
             
             # 计算MAE
@@ -551,11 +607,22 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
     if is_main_process:
         print('加载数据集...')
     
+    # 检查是否启用多模态
+    use_multimodal = hasattr(args, 'use_aux_features') and args.use_aux_features
+    use_gender = hasattr(args, 'aux_gender') and args.aux_gender
+    use_bmi = hasattr(args, 'aux_bmi') and args.aux_bmi
+    use_skewness = hasattr(args, 'aux_skewness') and args.aux_skewness
+    use_intensity = hasattr(args, 'aux_intensity') and args.aux_intensity
+    use_clarity = hasattr(args, 'aux_clarity') and args.aux_clarity
+    
     # 动态加载数据集模块
     # 年龄分层抽样始终启用（已成为默认最佳实践）
-    load_dataset = load_dataset_module(args.image_size, True, args.age_bin_width, args.clahe)
+    load_dataset = load_dataset_module(
+        args.image_size, True, args.age_bin_width, args.clahe,
+        use_multimodal, use_gender, use_bmi, use_skewness, use_intensity, use_clarity
+    )
     
-    train_dataset, val_dataset, test_dataset = load_dataset(
+    train_dataset, val_dataset, test_dataset, aux_dim = load_dataset(
         args.image_dir, 
         args.excel_path,
         test_size=args.test_size,
@@ -783,7 +850,20 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
     current_model = model_name if model_name else args.model
     if is_main_process:
         print(f'创建模型: {current_model}')
-    model = get_model(current_model, pretrained=args.pretrained, dropout=args.dropout)
+    
+    # 计算辅助特征维度
+    aux_dim = 0
+    if hasattr(args, 'use_aux_features') and args.use_aux_features:
+        if args.aux_gender: aux_dim += 2
+        if args.aux_bmi: aux_dim += 1
+        if args.aux_skewness: aux_dim += 1
+        if args.aux_intensity: aux_dim += 1
+        if args.aux_clarity: aux_dim += 1
+        if is_main_process:
+            print(f'使用辅助特征，总维度: {aux_dim}')
+    
+    model = get_model(current_model, pretrained=args.pretrained, dropout=args.dropout,
+                     aux_input_dim=aux_dim, aux_hidden_dim=args.aux_hidden_dim if hasattr(args, 'aux_hidden_dim') else 32)
     model = model.to(device)
     
     # 使用DDP进行多GPU训练
@@ -841,13 +921,14 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
                 param_group['lr'] = warmup_lr
         
         # 训练
+        use_aux = hasattr(args, 'use_aux_features') and args.use_aux_features and aux_dim > 0
         train_loss, train_mae, avg_grad_norm = train_epoch(
-            model, train_loader, criterion, optimizer, device, epoch, is_main_process, args.max_grad_norm
+            model, train_loader, criterion, optimizer, device, epoch, is_main_process, args.max_grad_norm, use_aux
         )
         
         # 验证
         val_loss, val_mae, val_rmse = validate(
-            model, val_loader, criterion, device, epoch, is_main_process
+            model, val_loader, criterion, device, epoch, is_main_process, use_aux
         )
         
         # 更新学习率（warmup后才使用余弦退火）
@@ -1115,6 +1196,17 @@ if __name__ == '__main__':
     parser.add_argument('--pretrained', action='store_true', default=True,
                        help='使用ImageNet预训练权重')
     parser.add_argument('--dropout', type=float, default=0.5, help='Dropout比例')
+    
+    # 多模态特征参数
+    parser.add_argument('--use-aux-features', action='store_true', 
+                       help='启用辅助特征（性别、BMI、图像统计）')
+    parser.add_argument('--aux-gender', action='store_true', help='使用性别特征（2-dim）')
+    parser.add_argument('--aux-bmi', action='store_true', help='使用BMI特征（1-dim）')
+    parser.add_argument('--aux-skewness', action='store_true', help='使用偏度特征（1-dim）')
+    parser.add_argument('--aux-intensity', action='store_true', help='使用平均灰度特征（1-dim）')
+    parser.add_argument('--aux-clarity', action='store_true', help='使用清晰度特征（1-dim）')
+    parser.add_argument('--aux-hidden-dim', type=int, default=32, 
+                       help='辅助特征隐藏层维度（默认32）')
     
     # 训练参数
     parser.add_argument('--epochs', type=int, default=500, help='最大训练轮数')
