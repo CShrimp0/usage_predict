@@ -1,0 +1,2175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>错误样本分析报告</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Microsoft YaHei', 'WenQuanYi Micro Hei', sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 28px;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .tab {
+            padding: 12px 24px;
+            cursor: pointer;
+            background: #f9f9f9;
+            border: none;
+            border-radius: 5px 5px 0 0;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        
+        .tab:hover {
+            background: #e8e8e8;
+        }
+        
+        .tab.active {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .stats-summary {
+            background: #f0f8ff;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            border-left: 4px solid #2196F3;
+        }
+        
+        .stats-summary h3 {
+            color: #2196F3;
+            margin-bottom: 15px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        
+        .stat-item {
+            background: white;
+            padding: 12px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            color: #333;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .samples-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+        }
+        
+        .sample-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+            transition: all 0.3s;
+            background: white;
+        }
+        
+        .sample-card:hover {
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            transform: translateY(-5px);
+        }
+        
+        .sample-image {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            background: #f0f0f0;
+        }
+        
+        .sample-info {
+            padding: 15px;
+        }
+        
+        .sample-filename {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 10px;
+            word-break: break-all;
+        }
+        
+        .sample-ages {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        
+        .age-item {
+            flex: 1;
+        }
+        
+        .age-label {
+            font-size: 12px;
+            color: #888;
+        }
+        
+        .age-value {
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .sample-error {
+            background: #ff5252;
+            color: white;
+            padding: 8px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .sample-error.low {
+            background: #4CAF50;
+        }
+        
+        .sample-stats {
+            font-size: 11px;
+            color: #666;
+            background: #f9f9f9;
+            padding: 8px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        
+        .sample-stats div {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 3px;
+        }
+        
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .controls label {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .controls select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .no-image {
+            width: 100%;
+            height: 200px;
+            background: #f0f0f0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 错误样本分析报告</h1>
+        <p style="text-align: center; color: #666; margin-bottom: 30px;">
+            生成时间: 2026-01-13 15:09:00
+        </p>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('high-error')">
+                ⚠️ 高错误样本 (20)
+            </button>
+            <button class="tab" onclick="showTab('low-error')">
+                ✅ 低错误样本 (20)
+            </button>
+            <button class="tab" onclick="showTab('outliers')">
+                🚨 离群样本 (17)
+            </button>
+        </div>
+
+        <div id="high-error" class="tab-content active">
+            <div class="stats-summary">
+                <h3>📊 图像统计特征</h3>
+                <p style="color: #666; margin-bottom: 15px;">这些样本的预测误差最大，可能包含数据质量问题或模型难以处理的边缘情况</p>
+
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">平均灰度</div>
+                        <div class="stat-value">73.19</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">灰度标准差</div>
+                        <div class="stat-value">33.26</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">清晰度</div>
+                        <div class="stat-value">453.11</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">对比度</div>
+                        <div class="stat-value">0.459</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">偏度</div>
+                        <div class="stat-value">0.637</div>
+                    </div>
+                </div>
+
+            </div>
+            
+            <div class="controls">
+                <label>排序方式:</label>
+                <select onchange="sortSamples('high-error-grid', this.value)">
+                    <option value="error">按误差排序</option>
+                    <option value="trueAge">按真实年龄排序</option>
+                    <option value="predAge">按预测年龄排序</option>
+                </select>
+            </div>
+            
+            <div id="high-error-grid" class="samples-grid">
+
+                <div class="sample-card" 
+                     data-error="30.97" 
+                     data-true-age="37.1"
+                     data-pred-age="68.0">
+                    <img src="../../../data/TA/Healthy/Images/anon_1006_3.png" class="sample-image" alt="anon_1006_3.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1006_3.png</div>
+                        <div class="sample-error ">
+                            误差: 30.97 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">37.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">68.0</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>76.3</span></div>
+                            <div><span>清晰度:</span><span>476.4</span></div>
+                            <div><span>对比度:</span><span>0.404</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="29.62" 
+                     data-true-age="37.1"
+                     data-pred-age="66.7">
+                    <img src="../../../data/TA/Healthy/Images/anon_1006_1.png" class="sample-image" alt="anon_1006_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1006_1.png</div>
+                        <div class="sample-error ">
+                            误差: 29.62 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">37.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">66.7</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>77.0</span></div>
+                            <div><span>清晰度:</span><span>438.0</span></div>
+                            <div><span>对比度:</span><span>0.407</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="28.82" 
+                     data-true-age="58.1"
+                     data-pred-age="29.3">
+                    <img src="../../../data/TA/Healthy/Images/anon_1427_1.png" class="sample-image" alt="anon_1427_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1427_1.png</div>
+                        <div class="sample-error ">
+                            误差: 28.82 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">58.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">29.3</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>65.9</span></div>
+                            <div><span>清晰度:</span><span>466.2</span></div>
+                            <div><span>对比度:</span><span>0.544</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="28.41" 
+                     data-true-age="81.1"
+                     data-pred-age="52.6">
+                    <img src="../../../data/TA/Healthy/Images/anon_1822_2.png" class="sample-image" alt="anon_1822_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1822_2.png</div>
+                        <div class="sample-error ">
+                            误差: 28.41 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">81.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">52.6</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>82.7</span></div>
+                            <div><span>清晰度:</span><span>478.1</span></div>
+                            <div><span>对比度:</span><span>0.401</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="27.09" 
+                     data-true-age="36.0"
+                     data-pred-age="63.1">
+                    <img src="../../../data/TA/Healthy/Images/anon_1687_3.png" class="sample-image" alt="anon_1687_3.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1687_3.png</div>
+                        <div class="sample-error ">
+                            误差: 27.09 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">36.0</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">63.1</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>76.2</span></div>
+                            <div><span>清晰度:</span><span>448.8</span></div>
+                            <div><span>对比度:</span><span>0.410</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="27.04" 
+                     data-true-age="37.1"
+                     data-pred-age="64.1">
+                    <img src="../../../data/TA/Healthy/Images/anon_1006_2.png" class="sample-image" alt="anon_1006_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1006_2.png</div>
+                        <div class="sample-error ">
+                            误差: 27.04 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">37.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">64.1</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>75.4</span></div>
+                            <div><span>清晰度:</span><span>435.5</span></div>
+                            <div><span>对比度:</span><span>0.411</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="26.81" 
+                     data-true-age="36.0"
+                     data-pred-age="62.8">
+                    <img src="../../../data/TA/Healthy/Images/anon_1687_2.png" class="sample-image" alt="anon_1687_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1687_2.png</div>
+                        <div class="sample-error ">
+                            误差: 26.81 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">36.0</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">62.8</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>75.7</span></div>
+                            <div><span>清晰度:</span><span>436.6</span></div>
+                            <div><span>对比度:</span><span>0.400</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="25.13" 
+                     data-true-age="83.1"
+                     data-pred-age="57.9">
+                    <img src="../../../data/TA/Healthy/Images/anon_865_1.png" class="sample-image" alt="anon_865_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_865_1.png</div>
+                        <div class="sample-error ">
+                            误差: 25.13 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">83.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">57.9</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>69.2</span></div>
+                            <div><span>清晰度:</span><span>419.3</span></div>
+                            <div><span>对比度:</span><span>0.462</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="23.10" 
+                     data-true-age="58.1"
+                     data-pred-age="35.0">
+                    <img src="../../../data/TA/Healthy/Images/anon_1427_2.png" class="sample-image" alt="anon_1427_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1427_2.png</div>
+                        <div class="sample-error ">
+                            误差: 23.10 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">58.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">35.0</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>66.0</span></div>
+                            <div><span>清晰度:</span><span>453.8</span></div>
+                            <div><span>对比度:</span><span>0.548</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="22.06" 
+                     data-true-age="43.9"
+                     data-pred-age="66.0">
+                    <img src="../../../data/TA/Healthy/Images/anon_1280_2.png" class="sample-image" alt="anon_1280_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1280_2.png</div>
+                        <div class="sample-error ">
+                            误差: 22.06 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">43.9</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">66.0</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>71.9</span></div>
+                            <div><span>清晰度:</span><span>406.3</span></div>
+                            <div><span>对比度:</span><span>0.422</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="21.14" 
+                     data-true-age="29.7"
+                     data-pred-age="50.8">
+                    <img src="../../../data/TA/Healthy/Images/anon_1449_1.png" class="sample-image" alt="anon_1449_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1449_1.png</div>
+                        <div class="sample-error ">
+                            误差: 21.14 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">29.7</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">50.8</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>73.9</span></div>
+                            <div><span>清晰度:</span><span>506.8</span></div>
+                            <div><span>对比度:</span><span>0.466</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="20.72" 
+                     data-true-age="34.2"
+                     data-pred-age="54.9">
+                    <img src="../../../data/TA/Healthy/Images/anon_1342_3.png" class="sample-image" alt="anon_1342_3.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1342_3.png</div>
+                        <div class="sample-error ">
+                            误差: 20.72 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">34.2</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">54.9</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>66.0</span></div>
+                            <div><span>清晰度:</span><span>427.7</span></div>
+                            <div><span>对比度:</span><span>0.528</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="20.69" 
+                     data-true-age="36.0"
+                     data-pred-age="56.7">
+                    <img src="../../../data/TA/Healthy/Images/anon_1687_1.png" class="sample-image" alt="anon_1687_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1687_1.png</div>
+                        <div class="sample-error ">
+                            误差: 20.69 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">36.0</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">56.7</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>76.1</span></div>
+                            <div><span>清晰度:</span><span>435.1</span></div>
+                            <div><span>对比度:</span><span>0.390</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="20.52" 
+                     data-true-age="81.1"
+                     data-pred-age="60.5">
+                    <img src="../../../data/TA/Healthy/Images/anon_1822_1.png" class="sample-image" alt="anon_1822_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1822_1.png</div>
+                        <div class="sample-error ">
+                            误差: 20.52 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">81.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">60.5</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>83.4</span></div>
+                            <div><span>清晰度:</span><span>503.0</span></div>
+                            <div><span>对比度:</span><span>0.419</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="20.23" 
+                     data-true-age="83.1"
+                     data-pred-age="62.8">
+                    <img src="../../../data/TA/Healthy/Images/anon_865_2.png" class="sample-image" alt="anon_865_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_865_2.png</div>
+                        <div class="sample-error ">
+                            误差: 20.23 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">83.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">62.8</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>70.7</span></div>
+                            <div><span>清晰度:</span><span>432.6</span></div>
+                            <div><span>对比度:</span><span>0.438</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="20.10" 
+                     data-true-age="43.9"
+                     data-pred-age="64.0">
+                    <img src="../../../data/TA/Healthy/Images/anon_1280_1.png" class="sample-image" alt="anon_1280_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1280_1.png</div>
+                        <div class="sample-error ">
+                            误差: 20.10 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">43.9</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">64.0</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>71.6</span></div>
+                            <div><span>清晰度:</span><span>463.8</span></div>
+                            <div><span>对比度:</span><span>0.533</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="19.99" 
+                     data-true-age="34.2"
+                     data-pred-age="54.2">
+                    <img src="../../../data/TA/Healthy/Images/anon_1342_1.png" class="sample-image" alt="anon_1342_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1342_1.png</div>
+                        <div class="sample-error ">
+                            误差: 19.99 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">34.2</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">54.2</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>65.9</span></div>
+                            <div><span>清晰度:</span><span>444.2</span></div>
+                            <div><span>对比度:</span><span>0.567</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="19.21" 
+                     data-true-age="42.9"
+                     data-pred-age="62.1">
+                    <img src="../../../data/TA/Healthy/Images/anon_752_1.png" class="sample-image" alt="anon_752_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_752_1.png</div>
+                        <div class="sample-error ">
+                            误差: 19.21 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">42.9</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">62.1</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>79.7</span></div>
+                            <div><span>清晰度:</span><span>480.6</span></div>
+                            <div><span>对比度:</span><span>0.440</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="18.88" 
+                     data-true-age="62.1"
+                     data-pred-age="43.3">
+                    <img src="../../../data/TA/Healthy/Images/anon_647_1.png" class="sample-image" alt="anon_647_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_647_1.png</div>
+                        <div class="sample-error ">
+                            误差: 18.88 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">62.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">43.3</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>61.7</span></div>
+                            <div><span>清晰度:</span><span>461.9</span></div>
+                            <div><span>对比度:</span><span>0.641</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="18.81" 
+                     data-true-age="43.9"
+                     data-pred-age="62.7">
+                    <img src="../../../data/TA/Healthy/Images/anon_1280_3.png" class="sample-image" alt="anon_1280_3.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1280_3.png</div>
+                        <div class="sample-error ">
+                            误差: 18.81 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">43.9</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">62.7</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>78.4</span></div>
+                            <div><span>清晰度:</span><span>447.8</span></div>
+                            <div><span>对比度:</span><span>0.356</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div id="low-error" class="tab-content ">
+            <div class="stats-summary">
+                <h3>📊 图像统计特征</h3>
+                <p style="color: #666; margin-bottom: 15px;">这些样本的预测误差最小，代表模型表现最佳的情况</p>
+
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">平均灰度</div>
+                        <div class="stat-value">64.82</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">灰度标准差</div>
+                        <div class="stat-value">35.43</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">清晰度</div>
+                        <div class="stat-value">448.03</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">对比度</div>
+                        <div class="stat-value">0.559</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">偏度</div>
+                        <div class="stat-value">1.101</div>
+                    </div>
+                </div>
+
+            </div>
+            
+            <div class="controls">
+                <label>排序方式:</label>
+                <select onchange="sortSamples('low-error-grid', this.value)">
+                    <option value="error">按误差排序</option>
+                    <option value="trueAge">按真实年龄排序</option>
+                    <option value="predAge">按预测年龄排序</option>
+                </select>
+            </div>
+            
+            <div id="low-error-grid" class="samples-grid">
+
+                <div class="sample-card" 
+                     data-error="0.01" 
+                     data-true-age="9.6"
+                     data-pred-age="9.6">
+                    <img src="../../../data/TA/Healthy/Images/anon_860_1.png" class="sample-image" alt="anon_860_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_860_1.png</div>
+                        <div class="sample-error low">
+                            误差: 0.01 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">9.6</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">9.6</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>63.7</span></div>
+                            <div><span>清晰度:</span><span>436.7</span></div>
+                            <div><span>对比度:</span><span>0.597</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.02" 
+                     data-true-age="8.8"
+                     data-pred-age="8.8">
+                    <img src="../../../data/TA/Healthy/Images/anon_1820_3.png" class="sample-image" alt="anon_1820_3.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1820_3.png</div>
+                        <div class="sample-error low">
+                            误差: 0.02 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">8.8</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">8.8</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>52.0</span></div>
+                            <div><span>清晰度:</span><span>395.7</span></div>
+                            <div><span>对比度:</span><span>0.714</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.02" 
+                     data-true-age="6.5"
+                     data-pred-age="6.5">
+                    <img src="../../../data/TA/Healthy/Images/anon_1021_2.png" class="sample-image" alt="anon_1021_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1021_2.png</div>
+                        <div class="sample-error low">
+                            误差: 0.02 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">6.5</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">6.5</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>59.0</span></div>
+                            <div><span>清晰度:</span><span>459.7</span></div>
+                            <div><span>对比度:</span><span>0.701</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.04" 
+                     data-true-age="54.1"
+                     data-pred-age="54.0">
+                    <img src="../../../data/TA/Healthy/Images/anon_717_2.png" class="sample-image" alt="anon_717_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_717_2.png</div>
+                        <div class="sample-error low">
+                            误差: 0.04 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">54.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">54.0</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>71.9</span></div>
+                            <div><span>清晰度:</span><span>522.4</span></div>
+                            <div><span>对比度:</span><span>0.540</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.04" 
+                     data-true-age="12.5"
+                     data-pred-age="12.5">
+                    <img src="../../../data/TA/Healthy/Images/anon_1810_3.png" class="sample-image" alt="anon_1810_3.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1810_3.png</div>
+                        <div class="sample-error low">
+                            误差: 0.04 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">12.5</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">12.5</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>60.7</span></div>
+                            <div><span>清晰度:</span><span>474.8</span></div>
+                            <div><span>对比度:</span><span>0.615</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.06" 
+                     data-true-age="57.1"
+                     data-pred-age="57.1">
+                    <img src="../../../data/TA/Healthy/Images/anon_1044_2.png" class="sample-image" alt="anon_1044_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1044_2.png</div>
+                        <div class="sample-error low">
+                            误差: 0.06 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">57.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">57.1</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>67.1</span></div>
+                            <div><span>清晰度:</span><span>393.1</span></div>
+                            <div><span>对比度:</span><span>0.436</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.07" 
+                     data-true-age="54.1"
+                     data-pred-age="54.1">
+                    <img src="../../../data/TA/Healthy/Images/anon_717_3.png" class="sample-image" alt="anon_717_3.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_717_3.png</div>
+                        <div class="sample-error low">
+                            误差: 0.07 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">54.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">54.1</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>72.7</span></div>
+                            <div><span>清晰度:</span><span>519.0</span></div>
+                            <div><span>对比度:</span><span>0.549</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.08" 
+                     data-true-age="71.2"
+                     data-pred-age="71.1">
+                    <img src="../../../data/TA/Healthy/Images/anon_1529_2.png" class="sample-image" alt="anon_1529_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1529_2.png</div>
+                        <div class="sample-error low">
+                            误差: 0.08 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">71.2</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">71.1</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>80.9</span></div>
+                            <div><span>清晰度:</span><span>453.3</span></div>
+                            <div><span>对比度:</span><span>0.380</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.11" 
+                     data-true-age="65.5"
+                     data-pred-age="65.6">
+                    <img src="../../../data/TA/Healthy/Images/anon_793_3.png" class="sample-image" alt="anon_793_3.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_793_3.png</div>
+                        <div class="sample-error low">
+                            误差: 0.11 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">65.5</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">65.6</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>64.7</span></div>
+                            <div><span>清晰度:</span><span>470.0</span></div>
+                            <div><span>对比度:</span><span>0.498</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.11" 
+                     data-true-age="63.9"
+                     data-pred-age="63.8">
+                    <img src="../../../data/TA/Healthy/Images/anon_387_3.png" class="sample-image" alt="anon_387_3.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_387_3.png</div>
+                        <div class="sample-error low">
+                            误差: 0.11 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">63.9</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">63.8</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>63.0</span></div>
+                            <div><span>清晰度:</span><span>415.5</span></div>
+                            <div><span>对比度:</span><span>0.535</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.11" 
+                     data-true-age="13.7"
+                     data-pred-age="13.8">
+                    <img src="../../../data/TA/Healthy/Images/anon_1257_2.png" class="sample-image" alt="anon_1257_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1257_2.png</div>
+                        <div class="sample-error low">
+                            误差: 0.11 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">13.7</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">13.8</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>64.2</span></div>
+                            <div><span>清晰度:</span><span>455.7</span></div>
+                            <div><span>对比度:</span><span>0.567</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.11" 
+                     data-true-age="13.7"
+                     data-pred-age="13.8">
+                    <img src="../../../data/TA/Healthy/Images/anon_1257_1.png" class="sample-image" alt="anon_1257_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1257_1.png</div>
+                        <div class="sample-error low">
+                            误差: 0.11 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">13.7</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">13.8</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>66.0</span></div>
+                            <div><span>清晰度:</span><span>434.9</span></div>
+                            <div><span>对比度:</span><span>0.565</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.12" 
+                     data-true-age="51.4"
+                     data-pred-age="51.3">
+                    <img src="../../../data/TA/Healthy/Images/anon_1296_2.png" class="sample-image" alt="anon_1296_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1296_2.png</div>
+                        <div class="sample-error low">
+                            误差: 0.12 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">51.4</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">51.3</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>76.8</span></div>
+                            <div><span>清晰度:</span><span>461.5</span></div>
+                            <div><span>对比度:</span><span>0.463</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.15" 
+                     data-true-age="50.5"
+                     data-pred-age="50.3">
+                    <img src="../../../data/TA/Healthy/Images/anon_666_2.png" class="sample-image" alt="anon_666_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_666_2.png</div>
+                        <div class="sample-error low">
+                            误差: 0.15 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">50.5</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">50.3</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>68.9</span></div>
+                            <div><span>清晰度:</span><span>485.7</span></div>
+                            <div><span>对比度:</span><span>0.550</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.16" 
+                     data-true-age="7.2"
+                     data-pred-age="7.0">
+                    <img src="../../../data/TA/Healthy/Images/anon_1275_1.png" class="sample-image" alt="anon_1275_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1275_1.png</div>
+                        <div class="sample-error low">
+                            误差: 0.16 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">7.2</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">7.0</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>60.6</span></div>
+                            <div><span>清晰度:</span><span>435.1</span></div>
+                            <div><span>对比度:</span><span>0.581</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.16" 
+                     data-true-age="65.8"
+                     data-pred-age="66.0">
+                    <img src="../../../data/TA/Healthy/Images/anon_1252_2.png" class="sample-image" alt="anon_1252_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1252_2.png</div>
+                        <div class="sample-error low">
+                            误差: 0.16 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">65.8</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">66.0</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>80.0</span></div>
+                            <div><span>清晰度:</span><span>452.0</span></div>
+                            <div><span>对比度:</span><span>0.339</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.25" 
+                     data-true-age="7.4"
+                     data-pred-age="7.1">
+                    <img src="../../../data/TA/Healthy/Images/anon_694_3.png" class="sample-image" alt="anon_694_3.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_694_3.png</div>
+                        <div class="sample-error low">
+                            误差: 0.25 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">7.4</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">7.1</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>64.9</span></div>
+                            <div><span>清晰度:</span><span>423.1</span></div>
+                            <div><span>对比度:</span><span>0.565</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.27" 
+                     data-true-age="1.5"
+                     data-pred-age="1.2">
+                    <img src="../../../data/TA/Healthy/Images/anon_1383_2.png" class="sample-image" alt="anon_1383_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1383_2.png</div>
+                        <div class="sample-error low">
+                            误差: 0.27 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">1.5</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">1.2</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>47.3</span></div>
+                            <div><span>清晰度:</span><span>366.9</span></div>
+                            <div><span>对比度:</span><span>0.669</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.28" 
+                     data-true-age="3.2"
+                     data-pred-age="3.5">
+                    <img src="../../../data/TA/Healthy/Images/anon_1366_2.png" class="sample-image" alt="anon_1366_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1366_2.png</div>
+                        <div class="sample-error low">
+                            误差: 0.28 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">3.2</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">3.5</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>64.7</span></div>
+                            <div><span>清晰度:</span><span>520.2</span></div>
+                            <div><span>对比度:</span><span>0.572</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="0.32" 
+                     data-true-age="2.8"
+                     data-pred-age="3.1">
+                    <img src="../../../data/TA/Healthy/Images/anon_665_1.png" class="sample-image" alt="anon_665_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_665_1.png</div>
+                        <div class="sample-error low">
+                            误差: 0.32 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">2.8</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">3.1</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>47.2</span></div>
+                            <div><span>清晰度:</span><span>385.2</span></div>
+                            <div><span>对比度:</span><span>0.751</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div id="outliers" class="tab-content ">
+            <div class="stats-summary">
+                <h3>📊 图像统计特征</h3>
+                <p style="color: #666; margin-bottom: 15px;">这些样本被识别为统计离群点，误差超过3倍标准差</p>
+
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">平均灰度</div>
+                        <div class="stat-value">73.18</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">灰度标准差</div>
+                        <div class="stat-value">33.10</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">清晰度</div>
+                        <div class="stat-value">451.29</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">对比度</div>
+                        <div class="stat-value">0.456</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">偏度</div>
+                        <div class="stat-value">0.612</div>
+                    </div>
+                </div>
+
+            </div>
+            
+            <div class="controls">
+                <label>排序方式:</label>
+                <select onchange="sortSamples('outliers-grid', this.value)">
+                    <option value="error">按误差排序</option>
+                    <option value="trueAge">按真实年龄排序</option>
+                    <option value="predAge">按预测年龄排序</option>
+                </select>
+            </div>
+            
+            <div id="outliers-grid" class="samples-grid">
+
+                <div class="sample-card" 
+                     data-error="30.97" 
+                     data-true-age="37.1"
+                     data-pred-age="68.0">
+                    <img src="../../../data/TA/Healthy/Images/anon_1006_3.png" class="sample-image" alt="anon_1006_3.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1006_3.png</div>
+                        <div class="sample-error ">
+                            误差: 30.97 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">37.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">68.0</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>76.3</span></div>
+                            <div><span>清晰度:</span><span>476.4</span></div>
+                            <div><span>对比度:</span><span>0.404</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="29.62" 
+                     data-true-age="37.1"
+                     data-pred-age="66.7">
+                    <img src="../../../data/TA/Healthy/Images/anon_1006_1.png" class="sample-image" alt="anon_1006_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1006_1.png</div>
+                        <div class="sample-error ">
+                            误差: 29.62 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">37.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">66.7</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>77.0</span></div>
+                            <div><span>清晰度:</span><span>438.0</span></div>
+                            <div><span>对比度:</span><span>0.407</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="28.82" 
+                     data-true-age="58.1"
+                     data-pred-age="29.3">
+                    <img src="../../../data/TA/Healthy/Images/anon_1427_1.png" class="sample-image" alt="anon_1427_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1427_1.png</div>
+                        <div class="sample-error ">
+                            误差: 28.82 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">58.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">29.3</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>65.9</span></div>
+                            <div><span>清晰度:</span><span>466.2</span></div>
+                            <div><span>对比度:</span><span>0.544</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="28.41" 
+                     data-true-age="81.1"
+                     data-pred-age="52.6">
+                    <img src="../../../data/TA/Healthy/Images/anon_1822_2.png" class="sample-image" alt="anon_1822_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1822_2.png</div>
+                        <div class="sample-error ">
+                            误差: 28.41 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">81.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">52.6</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>82.7</span></div>
+                            <div><span>清晰度:</span><span>478.1</span></div>
+                            <div><span>对比度:</span><span>0.401</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="27.09" 
+                     data-true-age="36.0"
+                     data-pred-age="63.1">
+                    <img src="../../../data/TA/Healthy/Images/anon_1687_3.png" class="sample-image" alt="anon_1687_3.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1687_3.png</div>
+                        <div class="sample-error ">
+                            误差: 27.09 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">36.0</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">63.1</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>76.2</span></div>
+                            <div><span>清晰度:</span><span>448.8</span></div>
+                            <div><span>对比度:</span><span>0.410</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="27.04" 
+                     data-true-age="37.1"
+                     data-pred-age="64.1">
+                    <img src="../../../data/TA/Healthy/Images/anon_1006_2.png" class="sample-image" alt="anon_1006_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1006_2.png</div>
+                        <div class="sample-error ">
+                            误差: 27.04 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">37.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">64.1</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>75.4</span></div>
+                            <div><span>清晰度:</span><span>435.5</span></div>
+                            <div><span>对比度:</span><span>0.411</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="26.81" 
+                     data-true-age="36.0"
+                     data-pred-age="62.8">
+                    <img src="../../../data/TA/Healthy/Images/anon_1687_2.png" class="sample-image" alt="anon_1687_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1687_2.png</div>
+                        <div class="sample-error ">
+                            误差: 26.81 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">36.0</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">62.8</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>75.7</span></div>
+                            <div><span>清晰度:</span><span>436.6</span></div>
+                            <div><span>对比度:</span><span>0.400</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="25.13" 
+                     data-true-age="83.1"
+                     data-pred-age="57.9">
+                    <img src="../../../data/TA/Healthy/Images/anon_865_1.png" class="sample-image" alt="anon_865_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_865_1.png</div>
+                        <div class="sample-error ">
+                            误差: 25.13 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">83.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">57.9</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>69.2</span></div>
+                            <div><span>清晰度:</span><span>419.3</span></div>
+                            <div><span>对比度:</span><span>0.462</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="23.10" 
+                     data-true-age="58.1"
+                     data-pred-age="35.0">
+                    <img src="../../../data/TA/Healthy/Images/anon_1427_2.png" class="sample-image" alt="anon_1427_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1427_2.png</div>
+                        <div class="sample-error ">
+                            误差: 23.10 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">58.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">35.0</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>66.0</span></div>
+                            <div><span>清晰度:</span><span>453.8</span></div>
+                            <div><span>对比度:</span><span>0.548</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="22.06" 
+                     data-true-age="43.9"
+                     data-pred-age="66.0">
+                    <img src="../../../data/TA/Healthy/Images/anon_1280_2.png" class="sample-image" alt="anon_1280_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1280_2.png</div>
+                        <div class="sample-error ">
+                            误差: 22.06 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">43.9</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">66.0</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>71.9</span></div>
+                            <div><span>清晰度:</span><span>406.3</span></div>
+                            <div><span>对比度:</span><span>0.422</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="21.14" 
+                     data-true-age="29.7"
+                     data-pred-age="50.8">
+                    <img src="../../../data/TA/Healthy/Images/anon_1449_1.png" class="sample-image" alt="anon_1449_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1449_1.png</div>
+                        <div class="sample-error ">
+                            误差: 21.14 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">29.7</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">50.8</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>73.9</span></div>
+                            <div><span>清晰度:</span><span>506.8</span></div>
+                            <div><span>对比度:</span><span>0.466</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="20.72" 
+                     data-true-age="34.2"
+                     data-pred-age="54.9">
+                    <img src="../../../data/TA/Healthy/Images/anon_1342_3.png" class="sample-image" alt="anon_1342_3.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1342_3.png</div>
+                        <div class="sample-error ">
+                            误差: 20.72 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">34.2</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">54.9</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>66.0</span></div>
+                            <div><span>清晰度:</span><span>427.7</span></div>
+                            <div><span>对比度:</span><span>0.528</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="20.69" 
+                     data-true-age="36.0"
+                     data-pred-age="56.7">
+                    <img src="../../../data/TA/Healthy/Images/anon_1687_1.png" class="sample-image" alt="anon_1687_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1687_1.png</div>
+                        <div class="sample-error ">
+                            误差: 20.69 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">36.0</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">56.7</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>76.1</span></div>
+                            <div><span>清晰度:</span><span>435.1</span></div>
+                            <div><span>对比度:</span><span>0.390</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="20.52" 
+                     data-true-age="81.1"
+                     data-pred-age="60.5">
+                    <img src="../../../data/TA/Healthy/Images/anon_1822_1.png" class="sample-image" alt="anon_1822_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1822_1.png</div>
+                        <div class="sample-error ">
+                            误差: 20.52 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">81.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">60.5</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>83.4</span></div>
+                            <div><span>清晰度:</span><span>503.0</span></div>
+                            <div><span>对比度:</span><span>0.419</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="20.23" 
+                     data-true-age="83.1"
+                     data-pred-age="62.8">
+                    <img src="../../../data/TA/Healthy/Images/anon_865_2.png" class="sample-image" alt="anon_865_2.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_865_2.png</div>
+                        <div class="sample-error ">
+                            误差: 20.23 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">83.1</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">62.8</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>70.7</span></div>
+                            <div><span>清晰度:</span><span>432.6</span></div>
+                            <div><span>对比度:</span><span>0.438</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="20.10" 
+                     data-true-age="43.9"
+                     data-pred-age="64.0">
+                    <img src="../../../data/TA/Healthy/Images/anon_1280_1.png" class="sample-image" alt="anon_1280_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1280_1.png</div>
+                        <div class="sample-error ">
+                            误差: 20.10 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">43.9</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">64.0</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>71.6</span></div>
+                            <div><span>清晰度:</span><span>463.8</span></div>
+                            <div><span>对比度:</span><span>0.533</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="sample-card" 
+                     data-error="19.99" 
+                     data-true-age="34.2"
+                     data-pred-age="54.2">
+                    <img src="../../../data/TA/Healthy/Images/anon_1342_1.png" class="sample-image" alt="anon_1342_1.png">
+
+                    <div class="sample-info">
+                        <div class="sample-filename">anon_1342_1.png</div>
+                        <div class="sample-error ">
+                            误差: 19.99 岁
+                        </div>
+                        <div class="sample-ages">
+                            <div class="age-item">
+                                <div class="age-label">真实年龄</div>
+                                <div class="age-value">34.2</div>
+                            </div>
+                            <div class="age-item">
+                                <div class="age-label">预测年龄</div>
+                                <div class="age-value">54.2</div>
+                            </div>
+                        </div>
+
+                        <div class="sample-stats">
+                            <div><span>灰度:</span><span>65.9</span></div>
+                            <div><span>清晰度:</span><span>444.2</span></div>
+                            <div><span>对比度:</span><span>0.567</span></div>
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <script>
+            function showTab(tabId) {
+                // 隐藏所有标签页
+                document.querySelectorAll('.tab-content').forEach(tab => {
+                    tab.classList.remove('active');
+                });
+                document.querySelectorAll('.tab').forEach(tab => {
+                    tab.classList.remove('active');
+                });
+                
+                // 显示选中的标签页
+                document.getElementById(tabId).classList.add('active');
+                event.target.classList.add('active');
+            }
+            
+            function sortSamples(containerId, sortBy) {
+                const container = document.getElementById(containerId);
+                const cards = Array.from(container.querySelectorAll('.sample-card'));
+                
+                cards.sort((a, b) => {
+                    const aVal = parseFloat(a.dataset[sortBy]);
+                    const bVal = parseFloat(b.dataset[sortBy]);
+                    return sortBy === 'error' ? bVal - aVal : aVal - bVal;
+                });
+                
+                container.innerHTML = '';
+                cards.forEach(card => container.appendChild(card));
+            }
+        </script>
+    </div>
+</body>
+</html>

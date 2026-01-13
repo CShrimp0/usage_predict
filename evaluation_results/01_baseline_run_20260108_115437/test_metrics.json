@@ -1,0 +1,105 @@
+{
+  "MAE": 7.672674179077148,
+  "RMSE": 9.826309204101562,
+  "Correlation": 0.8979106888554512,
+  "Accuracy_5years": 41.50537634408602,
+  "Accuracy_10years": 65.59139784946237,
+  "Accuracy_15years": 87.74193548387098,
+  "age_group_mae": [
+    {
+      "age_range": "0-10",
+      "start_age": 0,
+      "end_age": 10,
+      "count": 46,
+      "mae": 1.3343619108200073,
+      "rmse": 1.6720622777938843,
+      "mean_true_age": 5.673535346984863,
+      "mean_pred_age": 6.508634567260742
+    },
+    {
+      "age_range": "10-20",
+      "start_age": 10,
+      "end_age": 20,
+      "count": 30,
+      "mae": 4.5880327224731445,
+      "rmse": 6.352810859680176,
+      "mean_true_age": 14.569759368896484,
+      "mean_pred_age": 18.579851150512695
+    },
+    {
+      "age_range": "20-30",
+      "start_age": 20,
+      "end_age": 30,
+      "count": 33,
+      "mae": 10.967317581176758,
+      "rmse": 12.355005264282227,
+      "mean_true_age": 25.663864135742188,
+      "mean_pred_age": 35.282047271728516
+    },
+    {
+      "age_range": "30-40",
+      "start_age": 30,
+      "end_age": 40,
+      "count": 49,
+      "mae": 12.340970993041992,
+      "rmse": 14.545984268188477,
+      "mean_true_age": 36.04161834716797,
+      "mean_pred_age": 43.51288604736328
+    },
+    {
+      "age_range": "40-50",
+      "start_age": 40,
+      "end_age": 50,
+      "count": 63,
+      "mae": 8.483257293701172,
+      "rmse": 10.163108825683594,
+      "mean_true_age": 44.469215393066406,
+      "mean_pred_age": 46.867881774902344
+    },
+    {
+      "age_range": "50-60",
+      "start_age": 50,
+      "end_age": 60,
+      "count": 93,
+      "mae": 7.462401866912842,
+      "rmse": 9.249728202819824,
+      "mean_true_age": 54.425025939941406,
+      "mean_pred_age": 54.58061218261719
+    },
+    {
+      "age_range": "60-70",
+      "start_age": 60,
+      "end_age": 70,
+      "count": 80,
+      "mae": 6.594727993011475,
+      "rmse": 8.102352142333984,
+      "mean_true_age": 66.3065414428711,
+      "mean_pred_age": 62.0870475769043
+    },
+    {
+      "age_range": "70-80",
+      "start_age": 70,
+      "end_age": 80,
+      "count": 60,
+      "mae": 7.439275741577148,
+      "rmse": 8.722498893737793,
+      "mean_true_age": 75.12004852294922,
+      "mean_pred_age": 67.86528015136719
+    },
+    {
+      "age_range": "80-90",
+      "start_age": 80,
+      "end_age": 90,
+      "count": 11,
+      "mae": 18.15998077392578,
+      "rmse": 18.765365600585938,
+      "mean_true_age": 82.95638275146484,
+      "mean_pred_age": 64.7964096069336
+    }
+  ],
+  "total_samples": 465,
+  "error_analysis": {
+    "outlier_threshold": 19.95052719116211,
+    "outlier_count": 17
+  }
+}

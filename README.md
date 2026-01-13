@@ -40,6 +40,13 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
 ```bash
 # 使用独立脚本评估某个 checkpoint
 python evaluate.py --model-path outputs/run_xxx/best_model.pth --excel-path data/TA/characteristics.xlsx
+
+# 可视化错误样本（生成交互式HTML报告）
+python analyze_error_samples.py \
+  --result-dir evaluation_results/01_baseline_run_xxx \
+  --image-dir ../data/TA \
+  --max-samples 30
+# 将在浏览器中打开: evaluation_results/xxx/error_analysis_report.html
 ```
 
 ## 📁 项目结构（简化）
@@ -96,6 +103,9 @@ python scripts/visualize_image_sizes.py
 
 # 绘制误差分析图
 python scripts/plot_age_error.py
+
+# 错误样本可视化（HTML报告）
+python analyze_error_samples.py --help
 ```
 
 ## 🎯 核心特性

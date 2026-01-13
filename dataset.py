@@ -213,7 +213,8 @@ def stratified_split_by_age(subject_ids, age_dict, test_size=0.2, val_size=0.1,
 
 
 def load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_state=42,
-                image_size=224, use_age_stratify=False, age_bin_width=10, use_clahe=False):
+                image_size=224, use_age_stratify=False, age_bin_width=10, use_clahe=False,
+                min_age=0, max_age=100):
     """
     加载数据集并划分训练、验证、测试集
     
@@ -226,6 +227,8 @@ def load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_stat
         image_size: 图像resize尺寸（默认224）
         use_age_stratify: 是否使用年龄分层抽样（默认False）
         age_bin_width: 年龄分组宽度，仅在use_age_stratify=True时有效（默认10岁）
+        min_age: 最小年龄（包含），默认0岁
+        max_age: 最大年龄（包含），默认100岁
     
     Returns:
         train_dataset, val_dataset, test_dataset: 训练集、验证集、测试集
@@ -265,6 +268,16 @@ def load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_stat
     
     # 获取所有受试者ID
     all_subjects = list(subject_images.keys())
+    
+    # 年龄过滤
+    if min_age > 0 or max_age < 100:
+        filtered_subjects = [sid for sid in all_subjects if min_age <= age_dict[sid] <= max_age]
+        filtered_count = len(all_subjects) - len(filtered_subjects)
+        if filtered_count > 0:
+            print(f"\n🔍 年龄过滤: 保留 {min_age}-{max_age} 岁范围")
+            print(f"   过滤前: {len(all_subjects)} 个受试者")
+            print(f"   过滤后: {len(filtered_subjects)} 个受试者 (移除 {filtered_count} 个)")
+            all_subjects = filtered_subjects
     
     # 统计信息
     total_subjects = len(all_subjects)

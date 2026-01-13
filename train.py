@@ -83,7 +83,8 @@ def load_dataset_module(image_size=224, use_age_stratify=True, age_bin_width=10,
     if use_multimodal:
         from dataset import load_multimodal_dataset
         
-        def configured_load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_state=42):
+        def configured_load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_state=42,
+                                   min_age=0, max_age=100):
             train_ds, val_ds, test_ds, aux_dim = load_multimodal_dataset(
                 image_dir=image_dir,
                 excel_path=excel_path,
@@ -98,7 +99,9 @@ def load_dataset_module(image_size=224, use_age_stratify=True, age_bin_width=10,
                 use_bmi=use_bmi,
                 use_skewness=use_skewness,
                 use_intensity=use_intensity,
-                use_clarity=use_clarity
+                use_clarity=use_clarity,
+                min_age=min_age,
+                max_age=max_age
             )
             return train_ds, val_ds, test_ds, aux_dim
         
@@ -111,7 +114,8 @@ def load_dataset_module(image_size=224, use_age_stratify=True, age_bin_width=10,
     else:
         from dataset import load_dataset as load_dataset_func
         
-        def configured_load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_state=42):
+        def configured_load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_state=42,
+                                   min_age=0, max_age=100):
             train_ds, val_ds, test_ds = load_dataset_func(
                 image_dir=image_dir,
                 excel_path=excel_path,
@@ -121,7 +125,9 @@ def load_dataset_module(image_size=224, use_age_stratify=True, age_bin_width=10,
                 image_size=image_size,
                 use_age_stratify=use_age_stratify,
                 age_bin_width=age_bin_width,
-                use_clahe=(clahe == 1)
+                use_clahe=(clahe == 1),
+                min_age=min_age,
+                max_age=max_age
             )
             return train_ds, val_ds, test_ds, 0
         
@@ -627,7 +633,9 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
         args.excel_path,
         test_size=args.test_size,
         val_size=args.val_size,
-        random_state=args.seed
+        random_state=args.seed,
+        min_age=args.min_age,
+        max_age=args.max_age
     )
     
     # 保存完整配置文件（包含数据集信息）
@@ -1180,6 +1188,10 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=42, help='随机种子')
     parser.add_argument('--age-bin-width', type=int, default=10,
                        help='年龄分组宽度（岁）- 年龄分层抽样始终启用')
+    parser.add_argument('--min-age', type=float, default=0,
+                       help='最小年龄（包含），默认0岁')
+    parser.add_argument('--max-age', type=float, default=100,
+                       help='最大年龄（包含），默认100岁')
     parser.add_argument('--clahe', type=int, default=0, choices=[0, 1],
                        help='CLAHE预处理: 0=关闭, 1=启用（默认关闭）')
     
