@@ -113,6 +113,13 @@ results/runs_*/
 !results/summary/
 !results/best_results/
 
+# 推理/评估结果（允许上传文本和JSON，图片可选）
+!evaluation_results/
+!evaluation_results/**/*.txt
+!evaluation_results/**/*.json
+!evaluation_results/**/*.png
+!evaluation_results/**/*.jpg
+
 # ============================================================================
 # 大文件和临时文件
 # ============================================================================
