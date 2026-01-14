@@ -115,6 +115,7 @@ results/runs_*/
 
 # 推理/评估结果（允许上传文本和JSON，图片可选）
 !evaluation_results/
+!evaluation_results/**/
 !evaluation_results/**/*.txt
 !evaluation_results/**/*.json
 !evaluation_results/**/*.png
@@ -131,23 +132,6 @@ results/runs_*/
 *.sql
 *.sqlite
 *.db
-
-# ============================================================================
-# 特定项目文件
-# ============================================================================
-
-# 旧版本输出（已废弃）
-outputs_leak/
-old_experiments/
-
-# 测试文件
-test_output/
-debug/
-
-# 个人笔记（不上传）
-notes.txt
-TODO.txt
-personal_notes/
 
 # ============================================================================
 # 允许的关键文件（明确不忽略）

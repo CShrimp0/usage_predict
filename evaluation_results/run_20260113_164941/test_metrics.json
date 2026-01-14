@@ -1,0 +1,100 @@
+{
+  "evaluation_info": {
+    "checkpoint_path": "/home/szdx/LNX/usage_predict/outputs/run_20260113_164941/best_model.pth",
+    "evaluation_time": "2026-01-14 15:45:24",
+    "device": "cuda"
+  },
+  "model_config": {
+    "architecture": "resnet50",
+    "dropout": 0.6,
+    "best_epoch": 14,
+    "val_mae": 1.5380951393218267
+  },
+  "dataset_config": {
+    "test_size": 0.15,
+    "val_size": 0.15,
+    "seed": 42,
+    "use_age_stratify": true,
+    "age_bin_width": 10,
+    "age_range": "0-20.0",
+    "total_samples": 79
+  },
+  "overall_metrics": {
+    "MAE": {
+      "value": 1.4521273374557495,
+      "description": "平均绝对误差 (Mean Absolute Error)",
+      "unit": "years"
+    },
+    "RMSE": {
+      "value": 1.7934942245483398,
+      "description": "均方根误差 (Root Mean Square Error)",
+      "unit": "years"
+    },
+    "Correlation": {
+      "value": 0.9433447549033928,
+      "description": "皮尔逊相关系数 (Pearson Correlation Coefficient)",
+      "range": "[-1, 1]"
+    },
+    "Accuracy_5years": {
+      "value": 98.73417721518987,
+      "description": "5年误差内准确率",
+      "unit": "%"
+    },
+    "Accuracy_10years": {
+      "value": 100.0,
+      "description": "10年误差内准确率",
+      "unit": "%"
+    },
+    "Accuracy_15years": {
+      "value": 100.0,
+      "description": "15年误差内准确率",
+      "unit": "%"
+    }
+  },
+  "age_group_analysis": [
+    {
+      "age_range": "0-10",
+      "start_age": 0,
+      "end_age": 10,
+      "count": 46,
+      "mae": 1.4331399202346802,
+      "rmse": 1.8267766237258911,
+      "mean_true_age": 5.673535346984863,
+      "mean_pred_age": 6.2878098487854,
+      "true_mean": 5.673535346984863,
+      "pred_mean": 6.2878098487854
+    },
+    {
+      "age_range": "10-20",
+      "start_age": 10,
+      "end_age": 20,
+      "count": 33,
+      "mae": 1.4785943031311035,
+      "rmse": 1.7460427284240723,
+      "mean_true_age": 14.7819185256958,
+      "mean_pred_age": 13.452126502990723,
+      "true_mean": 14.7819185256958,
+      "pred_mean": 13.452126502990723
+    }
+  ],
+  "error_analysis": {
+    "description": "误差分析结果 (Error Analysis)",
+    "outlier_threshold": {
+      "value": 3.557309627532959,
+      "description": "异常值阈值 (mean + 2*std)",
+      "unit": "years"
+    },
+    "outlier_count": {
+      "value": 3,
+      "description": "异常样本数量",
+      "percentage": 3.8
+    },
+    "statistics": {
+      "mean_mae": 1.4521273374557495,
+      "std_mae": 1.0525912046432495,
+      "description": "误差统计 (均值 ± 标准差)"
+    },
+    "high_error_samples_file": "high_error_samples.txt",
+    "low_error_samples_file": "low_error_samples.txt"
+  }
+}
