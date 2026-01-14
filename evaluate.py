@@ -4,6 +4,7 @@
 import argparse
 import os
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,10 +12,212 @@ import seaborn as sns
 from pathlib import Path
 from tqdm import tqdm
 import json
+from datetime import datetime
+import cv2
+from PIL import Image
+from torchvision import transforms
 
 from dataset import load_dataset
 from model import get_model
 
+
+# ==========================================
+# Grad-CAM 热力图相关类和函数
+# ==========================================
+
+class GradCAM:
+    """Grad-CAM 核心逻辑"""
+    def __init__(self, model, target_layer):
+        self.model = model
+        self.target_layer = target_layer
+        self.gradients = None
+        self.activations = None
+        
+        # 注册钩子
+        self.target_layer.register_forward_hook(self.save_activation)
+        self.target_layer.register_full_backward_hook(self.save_gradient)
+
+    def save_activation(self, module, input, output):
+        self.activations = output
+
+    def save_gradient(self, module, grad_input, grad_output):
+        self.gradients = grad_output[0]
+
+    def __call__(self, x):
+        # 前向传播
+        output = self.model(x)
+        
+        # 反向传播
+        self.model.zero_grad()
+        output.backward()
+
+        # 生成热力图
+        pooled_gradients = torch.mean(self.gradients, dim=[0, 2, 3])
+        activations = self.activations.detach()
+        
+        # 加权
+        for i in range(activations.shape[1]):
+            activations[:, i, :, :] *= pooled_gradients[i]
+            
+        heatmap = torch.mean(activations, dim=1).squeeze()
+        heatmap = np.maximum(heatmap.cpu(), 0)  # ReLU
+        
+        # 归一化 (防止除零)
+        max_val = torch.max(heatmap)
+        if max_val > 0:
+            heatmap /= max_val
+            
+        return heatmap.numpy()
+
+
+def get_heatmap_overlay(raw_image, heatmap):
+    """获取热力图叠加在原图上"""
+    heatmap = cv2.resize(heatmap, (raw_image.shape[1], raw_image.shape[0]))
+    heatmap = np.uint8(255 * heatmap)
+    heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)  # BGR -> RGB
+    
+    overlay = cv2.addWeighted(heatmap, 0.5, raw_image, 0.5, 0)
+    return overlay
+
+
+def get_heatmap_only(heatmap, target_size):
+    """生成纯热力图（不叠加原图）"""
+    heatmap = cv2.resize(heatmap, target_size)
+    heatmap = np.uint8(255 * heatmap)
+    heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+    return heatmap
+
+
+def get_mask_overlay(mask_path, raw_image):
+    """获取 Mask 叠加图 (红色半透明)"""
+    if not os.path.exists(mask_path):
+        return raw_image  # 无 mask 返回原图
+    
+    mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+    if mask is None:
+        return raw_image
+    
+    mask = cv2.resize(mask, (raw_image.shape[1], raw_image.shape[0]))
+    
+    # 红色覆盖
+    overlay = raw_image.copy()
+    overlay[mask > 0] = [255, 0, 0]  # 红色
+    
+    # 混合
+    alpha = 0.3
+    result = cv2.addWeighted(overlay, alpha, raw_image, 1 - alpha, 0)
+    return result
+
+
+def generate_gradcam_visualization(model, device, sample_info, image_dir, mask_dir, 
+                                   output_path, sample_type='best'):
+    """
+    生成Grad-CAM热力图可视化
+    
+    Args:
+        model: 训练好的模型
+        device: 计算设备
+        sample_info: 样本信息字典 {'filename': str, 'true_age': float, 'pred_age': float, 'mae': float}
+        image_dir: 图像目录
+        mask_dir: Mask目录
+        output_path: 输出图像路径
+        sample_type: 'best' 或 'worst'
+    """
+    # 查找目标层 (ResNet50 的 layer4)
+    target_layer = None
+    for name, module in model.named_modules():
+        if 'layer4' in name and isinstance(module, nn.Conv2d):
+            target_layer = module
+            break
+            
+    if target_layer is None:
+        for module in reversed(list(model.modules())):
+            if isinstance(module, nn.Conv2d):
+                target_layer = module
+                break
+    
+    if target_layer is None:
+        print(f"警告: 未找到合适的卷积层用于Grad-CAM")
+        return
+    
+    # 创建GradCAM对象
+    grad_cam = GradCAM(model, target_layer)
+    
+    # 加载图像
+    img_path = os.path.join(image_dir, sample_info['filename'])
+    if not os.path.exists(img_path):
+        print(f"警告: 图像不存在: {img_path}")
+        return
+    
+    raw_image = Image.open(img_path).convert('RGB')
+    raw_image = np.array(raw_image)
+    
+    # 预处理用于模型推理
+    preprocess = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+    input_tensor = preprocess(Image.fromarray(raw_image)).unsqueeze(0).to(device)
+    
+    # 生成热力图
+    model.eval()
+    heatmap = grad_cam(input_tensor)
+    
+    # 查找mask文件
+    base_name = os.path.splitext(sample_info['filename'])[0]
+    potential_masks = [
+        os.path.join(mask_dir, sample_info['filename']),
+        os.path.join(mask_dir, base_name + '.png'),
+        os.path.join(mask_dir, base_name + '.jpg')
+    ]
+    mask_path = None
+    for mp in potential_masks:
+        if os.path.exists(mp):
+            mask_path = mp
+            break
+    
+    # 生成三个子图
+    mask_overlay = get_mask_overlay(mask_path, raw_image) if mask_path else raw_image
+    cam_overlay = get_heatmap_overlay(raw_image, heatmap)
+    heatmap_only = get_heatmap_only(heatmap, (raw_image.shape[1], raw_image.shape[0]))
+    
+    # 绘制并保存
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    
+    title_color = 'green' if sample_type == 'best' else 'red'
+    sample_label = '最佳预测' if sample_type == 'best' else '最差预测'
+    
+    # 第一个子图：原图+Mask
+    axes[0].imshow(mask_overlay)
+    axes[0].set_title(f'{sample_label} - Mask标注区域\n真实年龄: {sample_info["true_age"]:.1f} 岁', 
+                     fontsize=12, color=title_color, fontweight='bold', pad=8)
+    axes[0].axis('off')
+    
+    # 第二个子图：原图+热力图
+    axes[1].imshow(cam_overlay)
+    axes[1].set_title(f'Grad-CAM热力图叠加\n{sample_info["filename"]}\n预测年龄: {sample_info["pred_age"]:.1f} 岁', 
+                     fontsize=12, color=title_color, fontweight='bold', pad=8)
+    axes[1].axis('off')
+    
+    # 第三个子图：纯热力图
+    axes[2].imshow(heatmap_only)
+    axes[2].set_title(f'纯Grad-CAM热力图\nMAE: {sample_info["mae"]:.2f} 岁', 
+                     fontsize=12, color=title_color, fontweight='bold', pad=8)
+    axes[2].axis('off')
+    
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f'  Grad-CAM可视化已保存: {output_path}')
+
+
+# ==========================================
+# 原有评估函数
+# ==========================================
 
 def evaluate(model, test_loader, device, image_paths=None):
     """评估模型
@@ -687,9 +890,62 @@ def main(args):
     # 添加年龄分段MAE到metrics
     metrics['age_group_mae'] = age_group_mae
     
-    # 移除predictions和targets以减小文件大小
-    metrics_save = {k: v for k, v in metrics.items() if k not in ['predictions', 'targets']}
-    metrics_save['total_samples'] = len(predictions)
+    # 构建丰富的评估结果（添加元数据和说明）
+    metrics_save = {
+        "evaluation_info": {
+            "checkpoint_path": str(args.checkpoint),
+            "evaluation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "device": str(device)
+        },
+        "model_config": {
+            "architecture": train_args.get('model', 'resnet50'),
+            "dropout": train_args.get('dropout', 0.5),
+            "best_epoch": checkpoint.get('epoch', 'N/A'),
+            "val_mae": float(checkpoint.get('val_mae', 0.0))
+        },
+        "dataset_config": {
+            "test_size": test_size,
+            "val_size": val_size,
+            "seed": seed,
+            "use_age_stratify": use_age_stratify,
+            "age_bin_width": age_bin_width,
+            "age_range": f"{min_age}-{max_age}",
+            "total_samples": len(predictions)
+        },
+        "overall_metrics": {
+            "MAE": {
+                "value": float(metrics['MAE']),
+                "description": "平均绝对误差 (Mean Absolute Error)",
+                "unit": "years"
+            },
+            "RMSE": {
+                "value": float(metrics['RMSE']),
+                "description": "均方根误差 (Root Mean Square Error)",
+                "unit": "years"
+            },
+            "Correlation": {
+                "value": float(metrics['Correlation']),
+                "description": "皮尔逊相关系数 (Pearson Correlation Coefficient)",
+                "range": "[-1, 1]"
+            },
+            "Accuracy_5years": {
+                "value": float(metrics['Accuracy_5years']),
+                "description": "5年误差内准确率",
+                "unit": "%"
+            },
+            "Accuracy_10years": {
+                "value": float(metrics['Accuracy_10years']),
+                "description": "10年误差内准确率",
+                "unit": "%"
+            },
+            "Accuracy_15years": {
+                "value": float(metrics['Accuracy_15years']),
+                "description": "15年误差内准确率",
+                "unit": "%"
+            }
+        },
+        "age_group_analysis": age_group_mae
+    }
     
     with open(output_dir / 'test_metrics.json', 'w', encoding='utf-8') as f:
         json.dump(metrics_save, f, indent=2, ensure_ascii=False)
@@ -714,10 +970,24 @@ def main(args):
         )
         # 将误差分析统计添加到metrics
         metrics_save['error_analysis'] = {
-            'outlier_threshold': error_analysis['outlier_threshold'],
-            'outlier_count': error_analysis['outlier_count'],
-            'mean_mae': error_analysis['mean_mae'],
-            'std_mae': error_analysis['std_mae']
+            "description": "误差分析结果 (Error Analysis)",
+            "outlier_threshold": {
+                "value": float(error_analysis['outlier_threshold']),
+                "description": "异常值阈值 (mean + 2*std)",
+                "unit": "years"
+            },
+            "outlier_count": {
+                "value": int(error_analysis['outlier_count']),
+                "description": "异常样本数量",
+                "percentage": round(error_analysis['outlier_count'] / len(predictions) * 100, 2)
+            },
+            "statistics": {
+                "mean_mae": float(error_analysis['mean_mae']),
+                "std_mae": float(error_analysis['std_mae']),
+                "description": "误差统计 (均值 ± 标准差)"
+            },
+            "high_error_samples_file": "high_error_samples.txt",
+            "low_error_samples_file": "low_error_samples.txt"
         }
         # 更新保存的metrics
         with open(output_dir / 'test_metrics.json', 'w', encoding='utf-8') as f:
@@ -735,6 +1005,57 @@ def main(args):
     # 绘制图表
     print('\n绘制结果图表...')
     plot_results(predictions, targets, output_dir)
+    
+    # 生成Grad-CAM热力图可视化（最佳和最差样本）
+    if filenames:
+        print('\n生成Grad-CAM热力图可视化...')
+        
+        # 计算每个样本的MAE
+        errors = np.abs(predictions.flatten() - targets.flatten())
+        
+        # 找到最佳样本（MAE最小）
+        best_idx = np.argmin(errors)
+        best_sample = {
+            'filename': filenames[best_idx],
+            'true_age': float(targets[best_idx]),
+            'pred_age': float(predictions[best_idx]),
+            'mae': float(errors[best_idx])
+        }
+        
+        # 找到最差样本（MAE最大）
+        worst_idx = np.argmax(errors)
+        worst_sample = {
+            'filename': filenames[worst_idx],
+            'true_age': float(targets[worst_idx]),
+            'pred_age': float(predictions[worst_idx]),
+            'mae': float(errors[worst_idx])
+        }
+        
+        # 推断mask目录（假设与image_dir同级）
+        image_dir_path = Path(args.image_dir)
+        mask_dir = image_dir_path.parent / 'Masks'
+        
+        if not mask_dir.exists():
+            print(f'警告: Mask目录不存在: {mask_dir}，将只显示原图')
+            mask_dir = None
+        
+        # 生成最佳样本的Grad-CAM可视化
+        print(f'  生成最佳预测样本的Grad-CAM (MAE={best_sample["mae"]:.2f}岁)...')
+        generate_gradcam_visualization(
+            model, device, best_sample, 
+            args.image_dir, str(mask_dir) if mask_dir else args.image_dir,
+            output_dir / 'gradcam_best_sample.png', 
+            sample_type='best'
+        )
+        
+        # 生成最差样本的Grad-CAM可视化
+        print(f'  生成最差预测样本的Grad-CAM (MAE={worst_sample["mae"]:.2f}岁)...')
+        generate_gradcam_visualization(
+            model, device, worst_sample, 
+            args.image_dir, str(mask_dir) if mask_dir else args.image_dir,
+            output_dir / 'gradcam_worst_sample.png', 
+            sample_type='worst'
+        )
     
     print('\n评估完成!')
 

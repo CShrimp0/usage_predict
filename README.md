@@ -38,16 +38,38 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
 
 ### 评估模型
 ```bash
-# 使用独立脚本评估某个 checkpoint
-python evaluate.py --model-path outputs/run_xxx/best_model.pth --excel-path data/TA/characteristics.xlsx
+# 基本评估（自动从checkpoint读取训练参数）
+python evaluate.py --checkpoint outputs/run_xxx/best_model.pth
+
+# 指定输出目录
+python evaluate.py --checkpoint outputs/run_xxx/best_model.pth --output-dir my_results
+
+# 限制年龄范围评估（例如：只评估18-88岁）
+python evaluate.py \
+  --checkpoint outputs/run_xxx/best_model.pth \
+  --min-age 18 \
+  --max-age 88
+
+# 对比多个模型的评估结果
+python compare_evaluations.py evaluation_results/*/test_metrics.json
 
 # 可视化错误样本（生成交互式HTML报告）
 python analyze_error_samples.py \
-  --result-dir evaluation_results/01_baseline_run_xxx \
-  --image-dir ../data/TA \
+  --result-dir evaluation_results/run_xxx \
+  --image-dir data/TA \
   --max-samples 30
-# 将在浏览器中打开: evaluation_results/xxx/error_analysis_report.html
+# 在VS Code中右键error_analysis_report.html → "Open with Live Server"
 ```
+
+**评估输出文件**:
+- `test_metrics.json` - 结构化评估指标（含元数据、模型配置、年龄段分析）
+- `predictions.json` - 详细预测结果（每个样本）
+- `high_error_samples.txt` / `low_error_samples.txt` - 误差样本列表（⚠️标记异常值）
+- `image_feature_analysis.txt` - 图像特征对比分析
+- `*.png` - 可视化图表（散点图、Bland-Altman图等）
+- `error_analysis_report.html` - 交互式误差分析报告
+
+详见: [docs/TEST_METRICS_FORMAT.md](docs/TEST_METRICS_FORMAT.md)
 
 ## 📁 项目结构（简化）
 ```
@@ -85,6 +107,8 @@ usage_predict/
 | [docs/TRAINING_GUIDE.md](docs/TRAINING_GUIDE.md) | 训练参数详解和使用指南 |
 | [docs/DATASET_OPTIMIZATION.md](docs/DATASET_OPTIMIZATION.md) | 数据集划分和增强策略 |
 | [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) | 项目结构和文件说明 |
+| [docs/TEST_METRICS_FORMAT.md](docs/TEST_METRICS_FORMAT.md) | 评估结果格式说明和使用示例 |
+| [docs/ERROR_VISUALIZATION_GUIDE.md](docs/ERROR_VISUALIZATION_GUIDE.md) | 错误分析可视化指南 |
 
 ## 🔧 工具脚本
 
