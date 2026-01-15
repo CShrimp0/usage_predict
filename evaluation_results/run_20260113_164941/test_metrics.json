@@ -1,7 +1,7 @@
 {
   "evaluation_info": {
     "checkpoint_path": "/home/szdx/LNX/usage_predict/outputs/run_20260113_164941/best_model.pth",
-    "evaluation_time": "2026-01-14 15:45:24",
+    "evaluation_time": "2026-01-14 16:35:50",
     "device": "cuda"
   },
   "model_config": {

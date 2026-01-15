@@ -71,16 +71,45 @@ python analyze_error_samples.py \
 
 详见: [docs/TEST_METRICS_FORMAT.md](docs/TEST_METRICS_FORMAT.md)
 
-## 📁 项目结构（简化）
+## 📁 项目结构
+
+### 核心脚本
 ```
 usage_predict/
-├─ train.py            # 主训练脚本（参数化、支持DDP）
-├─ dataset.py          # 数据集与变换（CLAHE、年龄分层）
-├─ model.py            # 模型定义与构造器
-├─ evaluate.py         # 单独评估脚本（不在train结束自动运行）
-├─ requirements.txt
-├─ scripts/            # 辅助脚本（可视化/分析等）
-└─ outputs/            # 训练产物（每次run的文件夹）
+├── train.py                      # 训练脚本（支持DDP、年龄分层、CLAHE）
+├── evaluate.py                   # 评估脚本（含Grad-CAM热力图生成）
+├── dataset.py                    # 数据加载（受试者级划分、防数据泄露）
+├── model.py                      # 模型定义（ResNet50/EfficientNet/ConvNeXt）
+├── auxiliary_features.py         # 多模态辅助特征提取
+└── requirements.txt              # Python依赖
+```
+
+### 工具脚本
+```
+├── analyze_error_samples.py      # 交互式错误分析（生成HTML报告）
+├── compare_evaluations.py        # 多模型评估结果对比
+├── summarize_ablation_results.py # 消融实验结果汇总
+├── verify_no_leakage.py          # 数据泄露验证（重新执行划分逻辑）
+└── run_ablation_study.sh         # 批量消融实验脚本
+```
+
+### 文档
+```
+├── README.md                     # 项目说明（本文件）
+├── GRADCAM.md                    # Grad-CAM热力图使用指南
+├── DATA_LEAKAGE_REPORT.md        # 数据泄露检查报告
+├── ABLATION_RESULTS.md           # 消融实验结果
+└── MULTIMODAL_GUIDE.md           # 多模态训练指南
+```
+
+### 数据与输出
+```
+├── data/                         # 数据集目录
+│   └── TA/Healthy/
+│       ├── Images/               # 原始图像
+│       └── Masks/                # 标注文件
+├── outputs/                      # 训练输出（每次运行生成独立文件夹）
+└── evaluation_results/           # 评估结果（包含热力图、预测文件等）
 ```
 
 ## 📊 最佳模型
