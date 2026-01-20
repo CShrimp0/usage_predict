@@ -1,6 +1,6 @@
 # 超声图像年龄预测（usage_predict）
 
-简洁、可复现的超声图像年龄回归训练框架，支持单/多GPU训练、年龄分层抽样、CLAHE 预处理、Top‑3 checkpoint 保存与可复现的命令化实验。
+简洁、可复现的超声图像年龄回归训练框架，支持单/多GPU训练、年龄分层抽样、Top‑3 checkpoint 保存与可复现的命令化实验。
 
 ## 🚀 快速开始
 
@@ -29,7 +29,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
   --loss mae \
   --epochs 500 \
   --patience 100 \
-  --clahe 0 \
   --image-size 224 \
   --age-bin-width 10 \
   --seed 42 \
@@ -76,7 +75,7 @@ python analyze_error_samples.py \
 ### 核心脚本
 ```
 usage_predict/
-├── train.py                      # 训练脚本（支持DDP、年龄分层、CLAHE）
+├── train.py                      # 训练脚本（支持DDP、年龄分层）
 ├── evaluate.py                   # 评估脚本（含Grad-CAM热力图生成）
 ├── dataset.py                    # 数据加载（受试者级划分、防数据泄露）
 ├── model.py                      # 模型定义（ResNet50/EfficientNet/ConvNeXt）
@@ -210,7 +209,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
   --lr 0.0001 \
   --weight-decay 0.0001 \
   --patience 100 \
-  --clahe 0 \
   --image-size 224 \
   --seed 42 \
   --use-aux-features \

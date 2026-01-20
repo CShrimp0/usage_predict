@@ -5,7 +5,6 @@ TA超声图像年龄预测数据集加载器（优化版）
 - 支持可配置的图像尺寸（224×224, 256×256等）
 - 支持按受试者ID划分（防止数据泄露）
 - 支持按年龄分层抽样（提高泛化能力）
-- 支持CLAHE（限制对比度自适应直方图均衡化）
 - 统一的数据增强配置
 """
 import os
@@ -19,68 +18,6 @@ from pathlib import Path
 from sklearn.model_selection import train_test_split
 from collections import defaultdict
 import warnings
-import cv2
-
-
-class CLAHETransform:
-    """CLAHE（限制对比度自适应直方图均衡化）变换
-    
-    用于医学超声图像增强，可以：
-    - 增强局部对比度
-    - 突出组织纹理
-    - 消除全局亮度差异
-    - 减少设备参数影响
-    """
-    
-    def __init__(self, clip_limit=2.0, tile_grid_size=(8, 8)):
-        """
-        Args:
-            clip_limit: 对比度限制阈值，越高增强越强（默认2.0）
-            tile_grid_size: 网格大小，用于局部直方图均衡（默认8×8）
-        """
-        self.clip_limit = clip_limit
-        self.tile_grid_size = tile_grid_size
-    
-    def __call__(self, img):
-        """
-        Args:
-            img: PIL Image (RGB)
-        
-        Returns:
-            增强后的PIL Image
-        """
-        # 转换为numpy数组
-        img_np = np.array(img)
-        
-        # 如果是RGB图像，转换到LAB色彩空间
-        # 只对亮度通道（L）应用CLAHE，保留颜色信息
-        if len(img_np.shape) == 3 and img_np.shape[2] == 3:
-            # RGB -> LAB
-            lab = cv2.cvtColor(img_np, cv2.COLOR_RGB2LAB)
-            l, a, b = cv2.split(lab)
-            
-            # 创建CLAHE对象并应用到L通道
-            clahe = cv2.createCLAHE(
-                clipLimit=self.clip_limit,
-                tileGridSize=self.tile_grid_size
-            )
-            l_clahe = clahe.apply(l)
-            
-            # 合并通道
-            lab_clahe = cv2.merge([l_clahe, a, b])
-            
-            # LAB -> RGB
-            img_clahe = cv2.cvtColor(lab_clahe, cv2.COLOR_LAB2RGB)
-        else:
-            # 灰度图像直接应用CLAHE
-            clahe = cv2.createCLAHE(
-                clipLimit=self.clip_limit,
-                tileGridSize=self.tile_grid_size
-            )
-            img_clahe = clahe.apply(img_np)
-        
-        # 转换为PIL Image
-        return Image.fromarray(img_clahe)
 
 
 class TAUltrasoundAgeDataset(Dataset):
@@ -213,7 +150,7 @@ def stratified_split_by_age(subject_ids, age_dict, test_size=0.2, val_size=0.1,
 
 
 def load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_state=42,
-                image_size=224, use_age_stratify=False, age_bin_width=10, use_clahe=False,
+                image_size=224, use_age_stratify=False, age_bin_width=10,
                 min_age=0, max_age=100):
     """
     加载数据集并划分训练、验证、测试集
@@ -344,18 +281,12 @@ def load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_stat
     print(f"  验证集: {len(val_paths)} 样本，年龄 {np.mean(val_ages):.1f}±{np.std(val_ages):.1f} 岁")
     print(f"  测试集: {len(test_paths)} 样本，年龄 {np.mean(test_ages):.1f}±{np.std(test_ages):.1f} 岁")
     
-    # 定义图像变换（支持可配置的图像尺寸和CLAHE）
-    clahe_info = " + CLAHE增强" if use_clahe else ""
-    print(f"\n使用图像尺寸: {image_size}×{image_size}{clahe_info}")
+    # 定义图像变换（支持可配置的图像尺寸）
+    print(f"\n使用图像尺寸: {image_size}×{image_size}")
     
     # 构建变换列表
     train_transforms_list = [transforms.Resize((image_size, image_size))]
     eval_transforms_list = [transforms.Resize((image_size, image_size))]
-    
-    # 如果使用CLAHE，添加到变换列表开头（在Resize之后）
-    if use_clahe:
-        train_transforms_list.append(CLAHETransform(clip_limit=2.0, tile_grid_size=(8, 8)))
-        eval_transforms_list.append(CLAHETransform(clip_limit=2.0, tile_grid_size=(8, 8)))
     
     # 训练集增强
     train_transforms_list.extend([
@@ -368,7 +299,7 @@ def load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_stat
                            std=[0.229, 0.224, 0.225])
     ])
     
-    # 验证集和测试集不增强（但可以有CLAHE）
+    # 验证集和测试集不增强
     eval_transforms_list.extend([
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], 
@@ -498,7 +429,7 @@ class MultimodalDataset(Dataset):
 
 
 def load_multimodal_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_state=42,
-                            image_size=224, use_age_stratify=False, age_bin_width=10, use_clahe=False,
+                            image_size=224, use_age_stratify=False, age_bin_width=10,
                             use_gender=False, use_bmi=False, use_skewness=False, 
                             use_intensity=False, use_clarity=False):
     """
@@ -513,7 +444,6 @@ def load_multimodal_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, 
         image_size: 图像resize尺寸（默认224）
         use_age_stratify: 是否使用年龄分层抽样（默认False）
         age_bin_width: 年龄分组宽度（默认10岁）
-        use_clahe: 是否使用CLAHE增强
         use_gender: 是否使用性别特征
         use_bmi: 是否使用BMI特征
         use_skewness: 是否使用偏度特征
@@ -646,18 +576,12 @@ def load_multimodal_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, 
         print("\n计算辅助特征标准化参数（仅使用训练集）...")
         aux_feature_extractor.set_normalization_params(train_subjects, train_paths)
     
-    # 定义图像变换（支持可配置的图像尺寸和CLAHE）
-    clahe_info = " + CLAHE增强" if use_clahe else ""
-    print(f"\n使用图像尺寸: {image_size}×{image_size}{clahe_info}")
+    # 定义图像变换（支持可配置的图像尺寸）
+    print(f"\n使用图像尺寸: {image_size}×{image_size}")
     
     # 构建变换列表
     train_transforms_list = [transforms.Resize((image_size, image_size))]
     eval_transforms_list = [transforms.Resize((image_size, image_size))]
-    
-    # 如果使用CLAHE，添加到变换列表
-    if use_clahe:
-        train_transforms_list.append(CLAHETransform(clip_limit=2.0, tile_grid_size=(8, 8)))
-        eval_transforms_list.append(CLAHETransform(clip_limit=2.0, tile_grid_size=(8, 8)))
     
     # 训练集增强
     train_transforms_list.extend([

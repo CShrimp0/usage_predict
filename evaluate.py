@@ -596,7 +596,6 @@ def analyze_image_features(sample_info, image_dir, output_dir):
             f.write("  2. 考虑使用以下预处理方法:\n")
             
             if any(feat in ['mean', 'std', 'contrast'] for feat, _ in significant_features):
-                f.write("     - 直方图均衡化 (CLAHE)\n")
                 f.write("     - 对比度归一化\n")
             
             if any(feat == 'clarity' for feat, _ in significant_features):

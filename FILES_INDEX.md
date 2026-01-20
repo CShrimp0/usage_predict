@@ -5,7 +5,7 @@
 ### 🔧 核心训练与评估 (5个)
 | 文件 | 大小 | 说明 |
 |------|------|------|
-| `train.py` | 53K | 训练脚本，支持DDP、年龄分层、CLAHE、Top-3保存 |
+| `train.py` | 53K | 训练脚本，支持DDP、年龄分层、Top-3保存 |
 | `evaluate.py` | 42K | 评估脚本，自动生成Grad-CAM热力图 |
 | `dataset.py` | 26K | 数据加载，受试者级划分防数据泄露 |
 | `model.py` | 12K | 模型定义（ResNet50/EfficientNet/ConvNeXt等） |
@@ -25,7 +25,7 @@
 | `README.md` | 8.4K | 项目说明、快速开始、使用指南 |
 | `GRADCAM.md` | 6.0K | Grad-CAM热力图可视化功能文档 |
 | `DATA_LEAKAGE_REPORT.md` | 5.7K | 数据泄露三重验证报告（run_20260113_164941） |
-| `ABLATION_RESULTS.md` | 11K | 消融实验结果（baseline vs 多模态 vs CLAHE） |
+| `ABLATION_RESULTS.md` | 11K | 消融实验结果（baseline vs 多模态） |
 | `MULTIMODAL_GUIDE.md` | 9.6K | 多模态训练完整指南 |
 
 ### 🔨 辅助脚本 (1个)

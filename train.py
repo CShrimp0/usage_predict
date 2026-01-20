@@ -60,16 +60,15 @@ def get_loss_function(loss_type='mae'):
         raise ValueError(f"不支持的损失函数类型: {loss_type}。支持: mae, mse, smoothl1, huber")
 
 
-def load_dataset_module(image_size=224, use_age_stratify=True, age_bin_width=10, clahe=1,
+def load_dataset_module(image_size=224, use_age_stratify=True, age_bin_width=10,
                        use_multimodal=False, use_gender=False, use_bmi=False,
                        use_skewness=False, use_intensity=False, use_clarity=False):
-    """动态加载数据集，支持图像尺寸、年龄分层、CLAHE和多模态配置
+    """动态加载数据集，支持图像尺寸、年龄分层和多模态配置
     
     Args:
         image_size: 图像尺寸 (224 或 256)
         use_age_stratify: 是否使用年龄分层抽样（默认True）
         age_bin_width: 年龄分组宽度（默认10岁）
-        clahe: 是否使用CLAHE增强 (0=关闭, 1=启用)
         use_multimodal: 是否使用多模态数据集
         use_gender: 是否使用性别特征
         use_bmi: 是否使用BMI特征
@@ -94,7 +93,6 @@ def load_dataset_module(image_size=224, use_age_stratify=True, age_bin_width=10,
                 image_size=image_size,
                 use_age_stratify=use_age_stratify,
                 age_bin_width=age_bin_width,
-                use_clahe=(clahe == 1),
                 use_gender=use_gender,
                 use_bmi=use_bmi,
                 use_skewness=use_skewness,
@@ -105,10 +103,9 @@ def load_dataset_module(image_size=224, use_age_stratify=True, age_bin_width=10,
             )
             return train_ds, val_ds, test_ds, aux_dim
         
-        clahe_info = "，使用CLAHE" if clahe == 1 else ""
-        print(f"使用 {image_size}×{image_size} 分辨率" + 
+        print(f"使用 {image_size}×{image_size} 分辨率" +
               (f"，年龄分层抽样（每{age_bin_width}岁）" if use_age_stratify else "") +
-              clahe_info + "，多模态特征")
+              "，多模态特征")
         
         return configured_load_dataset
     else:
@@ -125,16 +122,13 @@ def load_dataset_module(image_size=224, use_age_stratify=True, age_bin_width=10,
                 image_size=image_size,
                 use_age_stratify=use_age_stratify,
                 age_bin_width=age_bin_width,
-                use_clahe=(clahe == 1),
                 min_age=min_age,
                 max_age=max_age
             )
             return train_ds, val_ds, test_ds, 0
         
-        clahe_info = "，使用CLAHE" if clahe == 1 else ""
-        print(f"使用 {image_size}×{image_size} 分辨率" + 
-              (f"，年龄分层抽样（每{age_bin_width}岁）" if use_age_stratify else "") +
-              clahe_info)
+        print(f"使用 {image_size}×{image_size} 分辨率" +
+              (f"，年龄分层抽样（每{age_bin_width}岁）" if use_age_stratify else ""))
         
         return configured_load_dataset
 
@@ -182,7 +176,6 @@ def generate_command_line(args):
         'seed': '随机种子',
         'use_age_stratify': '启用年龄分层抽样',
         'age_bin_width': '年龄分组宽度（岁）',
-        'clahe': 'CLAHE直方图均衡 (0=关闭, 1=启用)',
         'model': '模型架构',
         'loss': '损失函数类型',
         'image_size': '输入图像尺寸',
@@ -234,10 +227,6 @@ def generate_command_line(args):
     # 数据增强和分层（年龄分层始终启用）
     cmd_parts.append(f'    --age-bin-width {args.age_bin_width} \\')
     cmd_parts.append(f'        # {param_descriptions.get("age_bin_width", "")}')
-    if args.clahe == 1:
-        cmd_parts.append(f'    --clahe 1 \\')
-    else:
-        cmd_parts.append(f'    --clahe 0 \\')
     
     # 其他训练参数
     cmd_parts.append(f'    --num-workers {args.num_workers} \\')
@@ -624,7 +613,7 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
     # 动态加载数据集模块
     # 年龄分层抽样始终启用（已成为默认最佳实践）
     load_dataset = load_dataset_module(
-        args.image_size, True, args.age_bin_width, args.clahe,
+        args.image_size, True, args.age_bin_width,
         use_multimodal, use_gender, use_bmi, use_skewness, use_intensity, use_clarity
     )
     
@@ -661,7 +650,7 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
             'script_name': 'train.py',
             'script_version': '4.0',
             'timestamp': datetime.now().strftime('%Y%m%d_%H%M%S'),
-            'description': 'Unified training script with age stratification and CLAHE support',
+            'description': 'Unified training script with age stratification support',
             
             # ==================== 运行环境 ====================
             'environment': {
@@ -708,9 +697,6 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
             'preprocessing': {
                 # 图像预处理
                 'image_size': args.image_size,
-                'clahe': args.clahe,
-                'clahe_description': 'CLAHE (Contrast Limited Adaptive Histogram Equalization) applied to L channel in LAB color space' if args.clahe == 1 else 'No CLAHE preprocessing',
-                
                 # 数据增强
                 'rotation_degrees': 10,  # 训练时使用的随机旋转角度
                 'horizontal_flip': True,  # 默认启用水平翻转
@@ -796,7 +782,6 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
                 'early_stopping': f'Enabled (patience={args.patience})',
                 'data_augmentation': 'Rotation + ColorJitter + (optional) HorizontalFlip',
                 'age_stratification': 'Enabled (always)',
-                'clahe_preprocessing': 'Enabled' if args.clahe == 1 else 'Disabled',
                 'regularization': f'Dropout={args.dropout}, WeightDecay={args.weight_decay}',
             },
             
@@ -1192,8 +1177,6 @@ if __name__ == '__main__':
                        help='最小年龄（包含），默认0岁')
     parser.add_argument('--max-age', type=float, default=100,
                        help='最大年龄（包含），默认100岁')
-    parser.add_argument('--clahe', type=int, default=0, choices=[0, 1],
-                       help='CLAHE预处理: 0=关闭, 1=启用（默认关闭）')
     
     # 模型参数
     parser.add_argument('--model', type=str, default='resnet50', 

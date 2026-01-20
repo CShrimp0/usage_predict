@@ -47,7 +47,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
   --lr 0.0001 \
   --weight-decay 0.0001 \
   --patience 100 \
-  --clahe 0 \
   --image-size 224 \
   --seed 42
 
@@ -59,7 +58,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
   --lr 0.0001 \
   --weight-decay 0.0001 \
   --patience 100 \
-  --clahe 0 \
   --image-size 224 \
   --seed 42 \
   --use-aux-features \

@@ -10,18 +10,17 @@
 # 
 # 📝 新的参数约定:
 # - 年龄分层抽样: 已内置默认启用，无需指定 --use-age-stratify
-# - CLAHE控制: --clahe 0 (关闭) 或 --clahe 1 (启用，默认)
 # - num-workers: 默认8，无需指定
 # 
 # 💡 执行顺序: 阶段1→2→3→4→5 (核心) → 阶段6-9 (微调) → 阶段10 (集成)
 # ============================================================================
 
 # ============================================================================
-# 阶段1: BASELINE + CLAHE测试 (2个实验，预计2-3小时)
-# 说明: 建立基线，测试CLAHE效果
+# 阶段1: BASELINE测试 (1个实验，预计1-2小时)
+# 说明: 建立基线
 # ============================================================================
 
-# BASELINE: 不使用CLAHE
+# BASELINE
 CUDA_VISIBLE_DEVICES=0 python train.py \
     --model resnet50 \
     --batch-size 32 \
@@ -29,18 +28,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
     --lr 0.0001 \
     --weight-decay 0.0001 \
     --loss mae \
-    --clahe 0 \
-    --seed 42
-
-# 实验1.1: 使用CLAHE (推荐⭐⭐⭐⭐⭐)
-CUDA_VISIBLE_DEVICES=1 python train.py \
-    --model resnet50 \
-    --batch-size 32 \
-    --dropout 0.5 \
-    --lr 0.0001 \
-    --weight-decay 0.0001 \
-    --loss mae \
-    --clahe 1 \
     --seed 42
 
 # ============================================================================
@@ -251,7 +238,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
     --image-size 256 \
     --seed 42
 
-# 实验6.2: 图像尺寸256 + CLAHE (推荐⭐⭐⭐⭐⭐)
+# 实验6.2: 图像尺寸256
 CUDA_VISIBLE_DEVICES=1 python train.py \
     --model resnet50 \
     --batch-size 32 \
@@ -260,7 +247,6 @@ CUDA_VISIBLE_DEVICES=1 python train.py \
     --weight-decay 0.00001 \
     --loss mae \
     --image-size 256 \
-    --clahe 1 \
     --seed 42
 
 # ============================================================================
@@ -357,7 +343,6 @@ CUDA_VISIBLE_DEVICES=1 python train.py \
     --weight-decay 0.00001 \
     --loss mae \
     --image-size 256 \
-    --clahe 1 \
     --seed 42
 
 # 实验9.3: ConvNeXt-Tiny + 最优参数 (推荐⭐⭐⭐⭐⭐)
@@ -369,7 +354,6 @@ CUDA_VISIBLE_DEVICES=2 python train.py \
     --weight-decay 0.00001 \
     --loss mae \
     --image-size 256 \
-    --clahe 1 \
     --seed 42
 
 # ============================================================================
@@ -387,7 +371,6 @@ python train.py \
     --lr 0.0001 \
     --weight-decay 0.00001 \
     --loss mae \
-    --clahe 1 \
     --seed 42
 
 # 实验10.2: 6模型全集成 (推荐⭐⭐⭐⭐⭐)
@@ -400,7 +383,6 @@ python train.py \
     --lr 0.0001 \
     --weight-decay 0.00001 \
     --loss mae \
-    --clahe 1 \
     --seed 42
 
 # ============================================================================

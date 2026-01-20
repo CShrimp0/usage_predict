@@ -10,7 +10,6 @@ DROPOUT=0.6
 LR=0.0001
 WD=0.0001
 PATIENCE=100
-CLAHE=0
 IMG_SIZE=224
 SEED=42
 
@@ -25,7 +24,7 @@ echo "-----------------------------------------"
 CUDA_VISIBLE_DEVICES=$GPU python train.py \
   --model $MODEL --batch-size $BATCH_SIZE --dropout $DROPOUT \
   --lr $LR --weight-decay $WD --patience $PATIENCE \
-  --clahe $CLAHE --image-size $IMG_SIZE --seed $SEED \
+  --image-size $IMG_SIZE --seed $SEED \
   --output-dir ./outputs/ablation/01_baseline
 echo ""
 
@@ -35,7 +34,7 @@ echo "-----------------------------------------"
 CUDA_VISIBLE_DEVICES=$GPU python train.py \
   --model $MODEL --batch-size $BATCH_SIZE --dropout $DROPOUT \
   --lr $LR --weight-decay $WD --patience $PATIENCE \
-  --clahe $CLAHE --image-size $IMG_SIZE --seed $SEED \
+  --image-size $IMG_SIZE --seed $SEED \
   --use-aux-features --aux-gender \
   --output-dir ./outputs/ablation/02_gender_only
 echo ""
@@ -46,7 +45,7 @@ echo "-----------------------------------------"
 CUDA_VISIBLE_DEVICES=$GPU python train.py \
   --model $MODEL --batch-size $BATCH_SIZE --dropout $DROPOUT \
   --lr $LR --weight-decay $WD --patience $PATIENCE \
-  --clahe $CLAHE --image-size $IMG_SIZE --seed $SEED \
+  --image-size $IMG_SIZE --seed $SEED \
   --use-aux-features --aux-bmi \
   --output-dir ./outputs/ablation/03_bmi_only
 echo ""
@@ -57,7 +56,7 @@ echo "-----------------------------------------"
 CUDA_VISIBLE_DEVICES=$GPU python train.py \
   --model $MODEL --batch-size $BATCH_SIZE --dropout $DROPOUT \
   --lr $LR --weight-decay $WD --patience $PATIENCE \
-  --clahe $CLAHE --image-size $IMG_SIZE --seed $SEED \
+  --image-size $IMG_SIZE --seed $SEED \
   --use-aux-features --aux-gender --aux-bmi \
   --output-dir ./outputs/ablation/04_gender_bmi
 echo ""
@@ -68,7 +67,7 @@ echo "-----------------------------------------"
 CUDA_VISIBLE_DEVICES=$GPU python train.py \
   --model $MODEL --batch-size $BATCH_SIZE --dropout $DROPOUT \
   --lr $LR --weight-decay $WD --patience $PATIENCE \
-  --clahe $CLAHE --image-size $IMG_SIZE --seed $SEED \
+  --image-size $IMG_SIZE --seed $SEED \
   --use-aux-features --aux-skewness --aux-intensity --aux-clarity \
   --output-dir ./outputs/ablation/05_image_stats_only
 echo ""
@@ -79,7 +78,7 @@ echo "-----------------------------------------"
 CUDA_VISIBLE_DEVICES=$GPU python train.py \
   --model $MODEL --batch-size $BATCH_SIZE --dropout $DROPOUT \
   --lr $LR --weight-decay $WD --patience $PATIENCE \
-  --clahe $CLAHE --image-size $IMG_SIZE --seed $SEED \
+  --image-size $IMG_SIZE --seed $SEED \
   --use-aux-features --aux-gender --aux-bmi --aux-skewness --aux-intensity --aux-clarity \
   --output-dir ./outputs/ablation/06_all_features
 echo ""
@@ -90,7 +89,7 @@ echo "-----------------------------------------"
 CUDA_VISIBLE_DEVICES=$GPU python train.py \
   --model $MODEL --batch-size $BATCH_SIZE --dropout $DROPOUT \
   --lr $LR --weight-decay $WD --patience $PATIENCE \
-  --clahe $CLAHE --image-size $IMG_SIZE --seed $SEED \
+  --image-size $IMG_SIZE --seed $SEED \
   --use-aux-features --aux-skewness \
   --output-dir ./outputs/ablation/07_skewness_only
 echo ""
@@ -101,7 +100,7 @@ echo "-----------------------------------------"
 CUDA_VISIBLE_DEVICES=$GPU python train.py \
   --model $MODEL --batch-size $BATCH_SIZE --dropout $DROPOUT \
   --lr $LR --weight-decay $WD --patience $PATIENCE \
-  --clahe $CLAHE --image-size $IMG_SIZE --seed $SEED \
+  --image-size $IMG_SIZE --seed $SEED \
   --use-aux-features --aux-clarity \
   --output-dir ./outputs/ablation/08_clarity_only
 echo ""
@@ -112,7 +111,7 @@ echo "-----------------------------------------"
 CUDA_VISIBLE_DEVICES=$GPU python train.py \
   --model $MODEL --batch-size $BATCH_SIZE --dropout $DROPOUT \
   --lr $LR --weight-decay $WD --patience $PATIENCE \
-  --clahe $CLAHE --image-size $IMG_SIZE --seed $SEED \
+  --image-size $IMG_SIZE --seed $SEED \
   --use-aux-features --aux-intensity \
   --output-dir ./outputs/ablation/09_intensity_only
 echo ""
@@ -123,7 +122,7 @@ echo "-----------------------------------------"
 CUDA_VISIBLE_DEVICES=$GPU python train.py \
   --model $MODEL --batch-size $BATCH_SIZE --dropout $DROPOUT \
   --lr $LR --weight-decay $WD --patience $PATIENCE \
-  --clahe $CLAHE --image-size $IMG_SIZE --seed $SEED \
+  --image-size $IMG_SIZE --seed $SEED \
   --use-aux-features --aux-gender --aux-bmi --aux-skewness --aux-intensity --aux-clarity \
   --aux-hidden-dim 64 \
   --output-dir ./outputs/ablation/10_all_hidden64
