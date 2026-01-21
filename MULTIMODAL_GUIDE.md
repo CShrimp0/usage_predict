@@ -72,10 +72,10 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
 
 ```bash
 # 运行完整消融实验（10个配置）
-bash run_ablation_study.sh
+bash tools/run_ablation_study.sh
 
 # 查看结果汇总
-python summarize_ablation_results.py
+python tools/summarize_ablation_results.py
 ```
 
 消融实验包括：
@@ -162,8 +162,8 @@ usage_predict/
 ├── dataset.py                     # 多模态数据集 (MultimodalDataset)
 ├── model.py                       # 多模态模型 (FlexibleMultimodalModel)
 ├── train.py                       # 训练脚本（已支持多模态）
-├── run_ablation_study.sh          # 消融实验脚本
-├── summarize_ablation_results.py  # 结果汇总脚本
+├── tools/run_ablation_study.sh          # 消融实验脚本
+├── tools/summarize_ablation_results.py  # 结果汇总脚本
 ├── test_dataset_loading.py        # 数据加载测试
 └── test_multimodal.sh             # 快速测试脚本
 ```

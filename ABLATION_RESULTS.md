@@ -196,10 +196,10 @@ CUBLAS_WORKSPACE_CONFIG = ':4096:8'
 复现步骤：
 ```bash
 # 运行全部消融实验
-bash run_ablation_study.sh
+bash tools/run_ablation_study.sh
 
 # 生成结果汇总
-python summarize_ablation_results.py
+python tools/summarize_ablation_results.py
 ```
 
 ## 引用

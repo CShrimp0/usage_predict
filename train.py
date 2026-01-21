@@ -18,10 +18,12 @@
 """
 import os
 import argparse
+import random
+import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts
+from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, StepLR, ReduceLROnPlateau
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
@@ -36,6 +38,48 @@ import matplotlib
 matplotlib.use('Agg')  # 使用非交互式后端
 
 from model import get_model
+
+
+def seed_everything(seed, deterministic=False):
+    """Set random seeds for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    if deterministic:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+
+class ExponentialMovingAverage:
+    """Exponential Moving Average (EMA) for model parameters."""
+
+    def __init__(self, model, decay=0.999):
+        self.decay = decay
+        self.shadow = {}
+        self.backup = {}
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                self.shadow[name] = param.detach().clone()
+
+    def update(self, model):
+        with torch.no_grad():
+            for name, param in model.named_parameters():
+                if name in self.shadow:
+                    self.shadow[name].mul_(self.decay).add_(param.detach(), alpha=1 - self.decay)
+
+    def apply_to(self, model):
+        self.backup = {}
+        for name, param in model.named_parameters():
+            if name in self.shadow:
+                self.backup[name] = param.detach().clone()
+                param.data.copy_(self.shadow[name])
+
+    def restore(self, model):
+        for name, param in model.named_parameters():
+            if name in self.backup:
+                param.data.copy_(self.backup[name])
+        self.backup = {}
 
 
 def get_loss_function(loss_type='mae'):
@@ -185,11 +229,22 @@ def generate_command_line(args):
         'batch_size': '批次大小',
         'lr': '学习率',
         'weight_decay': '权重衰减',
+        'optimizer': '优化器类型',
+        'momentum': 'SGD动量',
         'eta_min': '学习率最小值',
+        'scheduler': '学习率调度器',
+        'step_size': 'StepLR步长',
+        'gamma': 'StepLR衰减系数',
+        'lr_patience': 'Plateau调度器耐心值',
+        'lr_factor': 'Plateau调度器衰减系数',
+        'lr_min_lr': 'Plateau最小学习率',
         'warmup_epochs': '学习率预热轮数',
+        'use_ema': '启用EMA',
+        'ema_decay': 'EMA衰减系数',
         'max_grad_norm': '梯度裁剪阈值',
         'patience': '早停耐心值',
         'num_workers': '数据加载线程数',
+        'no_save': '禁用训练输出保存',
         'no_horizontal_flip': '禁用水平翻转',
         'use_ddp': '使用DDP分布式训练',
         'ensemble': '启用集成训练模式',
@@ -215,6 +270,10 @@ def generate_command_line(args):
     cmd_parts.append(f'        # {param_descriptions.get("lr", "")}')
     cmd_parts.append(f'    --weight-decay {args.weight_decay} \\')
     cmd_parts.append(f'        # {param_descriptions.get("weight_decay", "")}')
+    cmd_parts.append(f'    --optimizer {args.optimizer} \\')
+    cmd_parts.append(f'        # {param_descriptions.get("optimizer", "")}')
+    cmd_parts.append(f'    --momentum {args.momentum} \\')
+    cmd_parts.append(f'        # {param_descriptions.get("momentum", "")}')
     cmd_parts.append(f'    --patience {args.patience} \\')
     cmd_parts.append(f'        # {param_descriptions.get("patience", "")}')
     
@@ -239,6 +298,20 @@ def generate_command_line(args):
     cmd_parts.append(f'        # {param_descriptions.get("eta_min", "")}')
     cmd_parts.append(f'    --warmup-epochs {args.warmup_epochs} \\')
     cmd_parts.append(f'        # {param_descriptions.get("warmup_epochs", "")}')
+    cmd_parts.append(f'    --scheduler {args.scheduler} \\')
+    cmd_parts.append(f'        # {param_descriptions.get("scheduler", "")}')
+    cmd_parts.append(f'    --step-size {args.step_size} \\')
+    cmd_parts.append(f'        # {param_descriptions.get("step_size", "")}')
+    cmd_parts.append(f'    --gamma {args.gamma} \\')
+    cmd_parts.append(f'        # {param_descriptions.get("gamma", "")}')
+    cmd_parts.append(f'    --lr-patience {args.lr_patience} \\')
+    cmd_parts.append(f'        # {param_descriptions.get("lr_patience", "")}')
+    cmd_parts.append(f'    --lr-factor {args.lr_factor} \\')
+    cmd_parts.append(f'        # {param_descriptions.get("lr_factor", "")}')
+    cmd_parts.append(f'    --lr-min-lr {args.lr_min_lr} \\')
+    cmd_parts.append(f'        # {param_descriptions.get("lr_min_lr", "")}')
+    cmd_parts.append(f'    --ema-decay {args.ema_decay} \\')
+    cmd_parts.append(f'        # {param_descriptions.get("ema_decay", "")}')
     cmd_parts.append(f'    --max-grad-norm {args.max_grad_norm} \\')
     cmd_parts.append(f'        # {param_descriptions.get("max_grad_norm", "")}')
     
@@ -268,6 +341,12 @@ def generate_command_line(args):
     if hasattr(args, 'no_horizontal_flip') and args.no_horizontal_flip:
         cmd_parts.append(f'    --no-horizontal-flip \\')
         cmd_parts.append(f'        # {param_descriptions.get("no_horizontal_flip", "")}')
+    if hasattr(args, 'no_save') and args.no_save:
+        cmd_parts.append(f'    --no-save \\')
+        cmd_parts.append(f'        # {param_descriptions.get("no_save", "")}')
+    if hasattr(args, 'use_ema') and args.use_ema:
+        cmd_parts.append(f'    --use-ema \\')
+        cmd_parts.append(f'        # {param_descriptions.get("use_ema", "")}')
     
     # DDP参数
     if hasattr(args, 'use_ddp') and args.use_ddp:
@@ -442,7 +521,8 @@ class AverageMeter:
         self.avg = self.sum / self.count
 
 
-def train_epoch(model, train_loader, criterion, optimizer, device, epoch, is_main_process, max_grad_norm=1.0, use_aux=False):
+def train_epoch(model, train_loader, criterion, optimizer, device, epoch, is_main_process,
+                max_grad_norm=1.0, use_aux=False, ema=None):
     """训练一个epoch"""
     model.train()
     
@@ -484,6 +564,8 @@ def train_epoch(model, train_loader, criterion, optimizer, device, epoch, is_mai
         grad_norms.update(grad_norm.item())
         
         optimizer.step()
+        if ema is not None:
+            ema.update(model)
         
         # 更新统计
         batch_size = images.size(0)
@@ -559,7 +641,7 @@ def validate(model, val_loader, criterion, device, epoch, is_main_process, use_a
     return losses.avg, maes.avg, rmse
 
 
-def train(args, model_name=None, gpu_id=None, is_ensemble=False):
+def train(args, model_name=None, gpu_id=None, is_ensemble=False, reporter=None):
     """主训练函数
     
     Args:
@@ -567,10 +649,40 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
         model_name: 模型名称（集成训练时使用）
         gpu_id: GPU ID（集成训练时使用）
         is_ensemble: 是否为集成训练模式
+        reporter: 可选回调函数 reporter(epoch, val_mae) 用于外部汇报/剪枝
     """
     # 初始化DDP
     rank, world_size, local_rank = setup_ddp()
     is_main_process = (rank == 0)
+    
+    if not hasattr(args, 'optimizer'):
+        args.optimizer = 'adamw'
+    if not hasattr(args, 'momentum'):
+        args.momentum = 0.9
+    if not hasattr(args, 'scheduler'):
+        args.scheduler = 'cosine'
+    if not hasattr(args, 'step_size'):
+        args.step_size = 10
+    if not hasattr(args, 'gamma'):
+        args.gamma = 0.1
+    if not hasattr(args, 'lr_patience'):
+        args.lr_patience = 5
+    if not hasattr(args, 'lr_factor'):
+        args.lr_factor = 0.1
+    if not hasattr(args, 'lr_min_lr'):
+        args.lr_min_lr = 1e-7
+    if not hasattr(args, 'use_ema'):
+        args.use_ema = False
+    if not hasattr(args, 'ema_decay'):
+        args.ema_decay = 0.999
+    if not hasattr(args, 'no_save'):
+        args.no_save = False
+    if not hasattr(args, 'deterministic'):
+        args.deterministic = False
+
+    # 固定随机种子（每个进程使用不同但可复现的seed）
+    base_seed = int(args.seed) + int(rank)
+    seed_everything(base_seed, deterministic=getattr(args, 'deterministic', False))
     
     # 设置设备
     if gpu_id is not None:
@@ -586,7 +698,7 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
             print(f'使用设备: {device}')
     
     # 创建带时间戳的输出目录（仅主进程）
-    if is_main_process:
+    if is_main_process and not getattr(args, 'no_save', False):
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_dir = Path(args.output_dir) / f'run_{timestamp}'
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -628,7 +740,7 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
     )
     
     # 保存完整配置文件（包含数据集信息）
-    if is_main_process:
+    if is_main_process and output_dir is not None:
         # 统计数据集中的受试者信息
         from collections import defaultdict
         train_subjects = defaultdict(int)
@@ -644,6 +756,36 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
         for img_path in test_dataset.image_paths:
             subject_id = Path(img_path).stem.split('_')[1]
             test_subjects[subject_id] += 1
+        
+        optimizer_params = {}
+        if args.optimizer == 'adamw':
+            optimizer_params = {
+                'betas': (0.9, 0.999),
+                'eps': 1e-8,
+                'amsgrad': False,
+            }
+        elif args.optimizer == 'sgd':
+            optimizer_params = {
+                'momentum': args.momentum,
+            }
+        
+        scheduler_params = {}
+        if args.scheduler == 'cosine':
+            scheduler_params = {
+                'T_max': args.epochs,
+                'eta_min': args.eta_min,
+            }
+        elif args.scheduler == 'step':
+            scheduler_params = {
+                'step_size': args.step_size,
+                'gamma': args.gamma,
+            }
+        elif args.scheduler == 'plateau':
+            scheduler_params = {
+                'patience': args.lr_patience,
+                'factor': args.lr_factor,
+                'min_lr': args.lr_min_lr,
+            }
         
         config = {
             # ==================== 脚本信息 ====================
@@ -735,21 +877,18 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
                 }.get(args.loss.upper(), args.loss.upper()),
                 
                 # 优化器
-                'optimizer': 'AdamW',
-                'optimizer_params': {
-                    'betas': (0.9, 0.999),
-                    'eps': 1e-8,
-                    'amsgrad': False,
-                },
+                'optimizer': args.optimizer,
+                'optimizer_params': optimizer_params,
                 
                 # 学习率调度
-                'lr_scheduler': 'CosineAnnealingLR',
-                'scheduler_params': {
-                    'T_max': args.epochs,
-                    'eta_min': args.eta_min,
-                },
+                'lr_scheduler': args.scheduler,
+                'scheduler_params': scheduler_params,
                 'warmup_epochs': args.warmup_epochs,
-                'warmup_description': f'Linear warmup for {args.warmup_epochs} epochs, then cosine annealing',
+                'warmup_description': f'Linear warmup for {args.warmup_epochs} epochs',
+                'ema': {
+                    'enabled': args.use_ema,
+                    'decay': args.ema_decay,
+                },
                 
                 # 训练参数
                 'epochs': args.epochs,
@@ -778,11 +917,16 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
             'optimizations_summary': {
                 'gradient_clipping': f'Enabled (max_norm={args.max_grad_norm})',
                 'lr_warmup': f'Enabled ({args.warmup_epochs} epochs)',
-                'lr_scheduler': f'CosineAnnealingLR (eta_min={args.eta_min})',
+                'lr_scheduler': (
+                    f'CosineAnnealingLR (eta_min={args.eta_min})' if args.scheduler == 'cosine'
+                    else f'StepLR (step_size={args.step_size}, gamma={args.gamma})' if args.scheduler == 'step'
+                    else f'ReduceLROnPlateau (patience={args.lr_patience}, factor={args.lr_factor}, min_lr={args.lr_min_lr})'
+                    if args.scheduler == 'plateau' else 'None'
+                ),
                 'early_stopping': f'Enabled (patience={args.patience})',
                 'data_augmentation': 'Rotation + ColorJitter + (optional) HorizontalFlip',
                 'age_stratification': 'Enabled (always)',
-                'regularization': f'Dropout={args.dropout}, WeightDecay={args.weight_decay}',
+                'regularization': f'Dropout={args.dropout}, WeightDecay={args.weight_decay}, EMA={args.use_ema}',
             },
             
             # ==================== 输出配置 ====================
@@ -824,6 +968,15 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
         command_file.chmod(command_file.stat().st_mode | stat.S_IEXEC)
         print(f'命令行已保存: {command_file}')
     
+    # DataLoader worker种子
+    def seed_worker(worker_id):
+        worker_seed = base_seed + worker_id
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+    
+    generator = torch.Generator()
+    generator.manual_seed(base_seed)
+    
     # 使用DistributedSampler for DDP
     if world_size > 1:
         train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
@@ -833,11 +986,14 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
         val_sampler = None
     
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler, 
-                             shuffle=(train_sampler is None), num_workers=args.num_workers, pin_memory=True)
+                             shuffle=(train_sampler is None), num_workers=args.num_workers, pin_memory=True,
+                             worker_init_fn=seed_worker, generator=generator)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, sampler=val_sampler, 
-                           shuffle=False, num_workers=args.num_workers, pin_memory=True)
+                           shuffle=False, num_workers=args.num_workers, pin_memory=True,
+                           worker_init_fn=seed_worker, generator=generator)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, 
-                            num_workers=args.num_workers, pin_memory=True)
+                            num_workers=args.num_workers, pin_memory=True,
+                            worker_init_fn=seed_worker, generator=generator)
     
     # 创建模型
     current_model = model_name if model_name else args.model
@@ -858,6 +1014,12 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
     model = get_model(current_model, pretrained=args.pretrained, dropout=args.dropout,
                      aux_input_dim=aux_dim, aux_hidden_dim=args.aux_hidden_dim if hasattr(args, 'aux_hidden_dim') else 32)
     model = model.to(device)
+
+    # EMA初始化（仅参数）
+    base_model = model.module if isinstance(model, DDP) else model
+    ema = None
+    if args.use_ema:
+        ema = ExponentialMovingAverage(base_model, decay=args.ema_decay)
     
     # 使用DDP进行多GPU训练
     if world_size > 1:
@@ -871,18 +1033,60 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
         loss_name_map = {'mae': 'MAE (L1)', 'mse': 'MSE (L2)', 'smoothl1': 'Smooth L1', 'huber': 'Huber'}
         print(f'使用损失函数: {loss_name_map.get(args.loss.lower(), args.loss)}')
     
-    optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, betas=(0.9, 0.999))
+    if args.optimizer == 'adamw':
+        optimizer = optim.AdamW(
+            model.parameters(),
+            lr=args.lr,
+            weight_decay=args.weight_decay,
+            betas=(0.9, 0.999)
+        )
+    elif args.optimizer == 'sgd':
+        optimizer = optim.SGD(
+            model.parameters(),
+            lr=args.lr,
+            weight_decay=args.weight_decay,
+            momentum=args.momentum
+        )
+    else:
+        raise ValueError(f"不支持的优化器: {args.optimizer}")
     
-    # 使用普通余弦退火（更平滑）
-    scheduler = CosineAnnealingLR(
-        optimizer,
-        T_max=args.epochs,  # 整个训练周期
-        eta_min=args.eta_min  # 最小学习率
-    )
+    scheduler = None
+    if args.scheduler == 'cosine':
+        scheduler = CosineAnnealingLR(
+            optimizer,
+            T_max=args.epochs,  # 整个训练周期
+            eta_min=args.eta_min  # 最小学习率
+        )
+    elif args.scheduler == 'step':
+        scheduler = StepLR(
+            optimizer,
+            step_size=args.step_size,
+            gamma=args.gamma
+        )
+    elif args.scheduler == 'plateau':
+        scheduler = ReduceLROnPlateau(
+            optimizer,
+            mode='min',
+            patience=args.lr_patience,
+            factor=args.lr_factor,
+            min_lr=args.lr_min_lr
+        )
+    elif args.scheduler == 'none':
+        scheduler = None
+    else:
+        raise ValueError(f"不支持的学习率调度器: {args.scheduler}")
+    
     if is_main_process:
         print(f'\n学习率配置:')
         print(f'  初始学习率: {args.lr:.2e}')
-        print(f'  使用CosineAnnealingLR: T_max={args.epochs}, eta_min={args.eta_min:.2e}')
+        if scheduler is None:
+            print('  学习率调度: None')
+        elif args.scheduler == 'cosine':
+            print(f'  使用CosineAnnealingLR: T_max={args.epochs}, eta_min={args.eta_min:.2e}')
+        elif args.scheduler == 'step':
+            print(f'  使用StepLR: step_size={args.step_size}, gamma={args.gamma}')
+        elif args.scheduler == 'plateau':
+            print(f'  使用ReduceLROnPlateau: patience={args.lr_patience}, factor={args.lr_factor}, min_lr={args.lr_min_lr}')
         print(f'  梯度裁剪: max_norm={args.max_grad_norm}')
         print(f'  Warmup epochs: {args.warmup_epochs}\n')
     
@@ -900,260 +1104,298 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False):
         'lr': []  # 学习率历史
     }
     
-    if is_main_process:
-        print('\n开始训练...')
-    for epoch in range(1, args.epochs + 1):
-        # 设置sampler的epoch（DDP需要）
-        if world_size > 1:
-            train_sampler.set_epoch(epoch)
-        
-        # Warmup阶段：线性增加学习率
-        if epoch <= args.warmup_epochs:
-            warmup_lr = args.lr * epoch / args.warmup_epochs
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = warmup_lr
-        
-        # 训练
-        use_aux = hasattr(args, 'use_aux_features') and args.use_aux_features and aux_dim > 0
-        train_loss, train_mae, avg_grad_norm = train_epoch(
-            model, train_loader, criterion, optimizer, device, epoch, is_main_process, args.max_grad_norm, use_aux
-        )
-        
-        # 验证
-        val_loss, val_mae, val_rmse = validate(
-            model, val_loader, criterion, device, epoch, is_main_process, use_aux
-        )
-        
-        # 更新学习率（warmup后才使用余弦退火）
-        if epoch > args.warmup_epochs:
-            scheduler.step()
-        
-        # 记录当前学习率
-        current_lr = optimizer.param_groups[0]['lr']
-        
-        # 记录历史（转换为Python原生float类型）
-        history['train_loss'].append(float(train_loss))
-        history['train_mae'].append(float(train_mae))
-        history['val_loss'].append(float(val_loss))
-        history['val_mae'].append(float(val_mae))
-        history['val_rmse'].append(float(val_rmse))
-        history['lr'].append(float(current_lr))  # 记录学习率
-        
-        # 打印统计（仅主进程）
+    start_time = time.time()
+    result = None
+    try:
         if is_main_process:
-            warmup_status = ' [Warmup]' if epoch <= args.warmup_epochs else ''
-            print(f'\nEpoch {epoch}/{args.epochs} (lr={current_lr:.2e}, grad={avg_grad_norm:.2f}){warmup_status}:')
-            print(f'  Train - Loss: {train_loss:.4f}, MAE: {train_mae:.2f} years')
-            print(f'  Val   - Loss: {val_loss:.4f}, MAE: {val_mae:.2f} years, RMSE: {val_rmse:.2f} years')
-        
-        # 保存最佳模型（仅主进程）
-        if is_main_process:
-            if val_mae < best_val_mae:
-                best_val_mae = val_mae
-                best_epoch = epoch
-                patience_counter = 0  # 重置早停计数器
-                # 保存模型时处理DDP包装
-                model_to_save = model.module if isinstance(model, DDP) else model
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model_to_save.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'val_mae': val_mae,
-                    'val_rmse': val_rmse,
-                    'args': vars(args)
-                }, output_dir / 'best_model.pth')
-                print(f'  ✓ 保存最佳模型 (MAE: {val_mae:.2f} years)')
-                
-                # 管理top3模型保存
-                checkpoint_path = output_dir / f'top3_epoch_{epoch}_mae_{val_mae:.3f}.pth'
-                model_to_save = model.module if isinstance(model, DDP) else model
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model_to_save.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'val_mae': val_mae,
-                    'val_rmse': val_rmse
-                }, checkpoint_path)
-                
-                # 添加到top3列表
-                top3_models.append((val_mae, epoch, checkpoint_path))
-                top3_models.sort(key=lambda x: x[0])  # 按MAE排序
-                
-                # 如果超过3个，删除最差的
-                if len(top3_models) > 3:
-                    _, _, path_to_remove = top3_models.pop()
-                    if path_to_remove.exists():
-                        path_to_remove.unlink()
-                
-                print(f'  ✓ 保存到Top3模型 (当前Top3: {", ".join([f"Epoch{e}={m:.3f}" for m,e,_ in top3_models])})')
-            else:
-                patience_counter += 1
-                print(f'  ⚠ 没有改善 ({patience_counter}/{args.patience})')
-                
-                # 早停检查
-                if patience_counter >= args.patience:
-                    print(f'\n早停触发！连续 {args.patience} 个epoch没有改善，停止训练。')
-                    print(f'最佳模型: Epoch {best_epoch}, MAE: {best_val_mae:.2f} years')
-                    break
+            print('\n开始训练...')
+        for epoch in range(1, args.epochs + 1):
+            # 设置sampler的epoch（DDP需要）
+            if world_size > 1:
+                train_sampler.set_epoch(epoch)
             
-            # 每10轮绘制训练曲线（不保存模型）
-            if epoch % 10 == 0:
-                print(f'  ✓ 更新训练曲线图 (Epoch {epoch})')
-                plot_training_curves(history, output_dir, epoch=epoch)
+            # Warmup阶段：线性增加学习率
+            if epoch <= args.warmup_epochs:
+                warmup_lr = args.lr * epoch / args.warmup_epochs
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = warmup_lr
+            
+            # 训练
+            use_aux = hasattr(args, 'use_aux_features') and args.use_aux_features and aux_dim > 0
+            train_loss, train_mae, avg_grad_norm = train_epoch(
+                model, train_loader, criterion, optimizer, device, epoch, is_main_process,
+                args.max_grad_norm, use_aux, ema
+            )
+            
+            # 验证
+            if ema is not None:
+                ema.apply_to(base_model)
+            val_loss, val_mae, val_rmse = validate(
+                model, val_loader, criterion, device, epoch, is_main_process, use_aux
+            )
+            if ema is not None:
+                ema.restore(base_model)
+            
+            if reporter is not None:
+                reporter(epoch, float(val_mae))
+            
+            # 更新学习率（warmup后才使用余弦退火）
+            if scheduler is not None and epoch > args.warmup_epochs:
+                if args.scheduler == 'plateau':
+                    scheduler.step(val_loss)
+                else:
+                    scheduler.step()
+            
+            # 记录当前学习率
+            current_lr = optimizer.param_groups[0]['lr']
+            
+            # 记录历史（转换为Python原生float类型）
+            history['train_loss'].append(float(train_loss))
+            history['train_mae'].append(float(train_mae))
+            history['val_loss'].append(float(val_loss))
+            history['val_mae'].append(float(val_mae))
+            history['val_rmse'].append(float(val_rmse))
+            history['lr'].append(float(current_lr))  # 记录学习率
+            
+            # 打印统计（仅主进程）
+            if is_main_process:
+                warmup_status = ' [Warmup]' if epoch <= args.warmup_epochs else ''
+                print(f'\nEpoch {epoch}/{args.epochs} (lr={current_lr:.2e}, grad={avg_grad_norm:.2f}){warmup_status}:')
+                print(f'  Train - Loss: {train_loss:.4f}, MAE: {train_mae:.2f} years')
+                print(f'  Val   - Loss: {val_loss:.4f}, MAE: {val_mae:.2f} years, RMSE: {val_rmse:.2f} years')
+            
+            # 保存最佳模型（仅主进程）
+            if is_main_process:
+                if val_mae < best_val_mae:
+                    best_val_mae = val_mae
+                    best_epoch = epoch
+                    patience_counter = 0  # 重置早停计数器
+                    if output_dir is not None:
+                        # 保存模型时处理DDP包装
+                        model_to_save = model.module if isinstance(model, DDP) else model
+                        if ema is not None:
+                            ema.apply_to(model_to_save)
+                        torch.save({
+                            'epoch': epoch,
+                            'model_state_dict': model_to_save.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict(),
+                            'val_mae': val_mae,
+                            'val_rmse': val_rmse,
+                            'args': vars(args)
+                        }, output_dir / 'best_model.pth')
+                        if ema is not None:
+                            ema.restore(model_to_save)
+                        print(f'  ✓ 保存最佳模型 (MAE: {val_mae:.2f} years)')
+                        
+                        # 管理top3模型保存
+                        checkpoint_path = output_dir / f'top3_epoch_{epoch}_mae_{val_mae:.3f}.pth'
+                        model_to_save = model.module if isinstance(model, DDP) else model
+                        if ema is not None:
+                            ema.apply_to(model_to_save)
+                        torch.save({
+                            'epoch': epoch,
+                            'model_state_dict': model_to_save.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict(),
+                            'val_mae': val_mae,
+                            'val_rmse': val_rmse
+                        }, checkpoint_path)
+                        if ema is not None:
+                            ema.restore(model_to_save)
+                        
+                        # 添加到top3列表
+                        top3_models.append((val_mae, epoch, checkpoint_path))
+                        top3_models.sort(key=lambda x: x[0])  # 按MAE排序
+                        
+                        # 如果超过3个，删除最差的
+                        if len(top3_models) > 3:
+                            _, _, path_to_remove = top3_models.pop()
+                            if path_to_remove.exists():
+                                path_to_remove.unlink()
+                        
+                        top3_info = ", ".join([f"Epoch{e}={m:.3f}" for m, e, _ in top3_models])
+                        print(f'  ✓ 保存到Top3模型 (当前Top3: {top3_info})')
+                else:
+                    patience_counter += 1
+                    print(f'  ⚠ 没有改善 ({patience_counter}/{args.patience})')
+                    
+                    # 早停检查
+                    if patience_counter >= args.patience:
+                        print(f'\n早停触发！连续 {args.patience} 个epoch没有改善，停止训练。')
+                        print(f'最佳模型: Epoch {best_epoch}, MAE: {best_val_mae:.2f} years')
+                        break
+                
+                # 每10轮绘制训练曲线（不保存模型）
+                if output_dir is not None and epoch % 10 == 0:
+                    print(f'  ✓ 更新训练曲线图 (Epoch {epoch})')
+                    plot_training_curves(history, output_dir, epoch=epoch)
     
-    # 保存训练历史（仅主进程）
-    if is_main_process:
-        with open(output_dir / 'history.json', 'w') as f:
-            json.dump(history, f, indent=2)
-        print(f'训练历史已保存: {output_dir / "history.json"}')
-        
-        # 绘制最终训练曲线
-        print('\n绘制最终训练曲线...')
-        plot_training_curves(history, output_dir)
-        
-        print(f'\n训练完成!')
-        print(f'最佳模型: Epoch {best_epoch}, Val MAE: {best_val_mae:.2f} years')
-        print(f'\n所有结果保存在: {output_dir}')
-        print(f'  - 最佳模型: best_model.pth')
-        print(f'  - 训练曲线: training_curves.png')
-        print(f'  - 训练历史: history.json')
-        print(f'  - 配置文件: config.json')
-        print(f'  - 命令脚本: command.sh')
-        
-        # ==================== 测试集评估 (已禁用) ====================
-        # 注：训练完成后不再自动进行测试集评估，避免测试集过度使用
-        # 如需测试，请使用独立的evaluate.py脚本
-        """
-        print('\n' + '='*60)
-        print('在测试集上评估最佳模型...')
-        print('='*60)
-        
-        # 加载最佳模型
-        checkpoint = torch.load(output_dir / 'best_model.pth', map_location=device, weights_only=False)
-        model_to_load = model.module if isinstance(model, DDP) else model
-        model_to_load.load_state_dict(checkpoint['model_state_dict'])
-        model.eval()
-        
-        # 在测试集上评估
-        test_losses = AverageMeter()
-        test_maes = AverageMeter()
-        all_test_preds = []
-        all_test_targets = []
-        
-        with torch.no_grad():
-            for images, ages in tqdm(test_loader, desc='Testing'):
-                images = images.to(device)
-                ages = ages.to(device)
+        # 保存训练历史（仅主进程）
+        if is_main_process:
+            if output_dir is not None:
+                with open(output_dir / 'history.json', 'w') as f:
+                    json.dump(history, f, indent=2)
+                print(f'训练历史已保存: {output_dir / "history.json"}')
                 
-                outputs = model(images)
-                loss = criterion(outputs, ages)
-                mae = torch.abs(outputs - ages).mean()
+                # 绘制最终训练曲线
+                print('\n绘制最终训练曲线...')
+                plot_training_curves(history, output_dir)
                 
-                batch_size = images.size(0)
-                test_losses.update(loss.item(), batch_size)
-                test_maes.update(mae.item(), batch_size)
-                
-                all_test_preds.extend(outputs.cpu().numpy())
-                all_test_targets.extend(ages.cpu().numpy())
+                print(f'\n训练完成!')
+                print(f'最佳模型: Epoch {best_epoch}, Val MAE: {best_val_mae:.2f} years')
+                print(f'\n所有结果保存在: {output_dir}')
+                print(f'  - 最佳模型: best_model.pth')
+                print(f'  - 训练曲线: training_curves.png')
+                print(f'  - 训练历史: history.json')
+                print(f'  - 配置文件: config.json')
+                print(f'  - 命令脚本: command.sh')
+            else:
+                print(f'\n训练完成!')
+                print(f'最佳模型: Epoch {best_epoch}, Val MAE: {best_val_mae:.2f} years')
+            
+            # ==================== 测试集评估 (已禁用) ====================
+            # 注：训练完成后不再自动进行测试集评估，避免测试集过度使用
+            # 如需测试，请使用独立的evaluate.py脚本
+            """
+            print('\n' + '='*60)
+            print('在测试集上评估最佳模型...')
+            print('='*60)
+            
+            # 加载最佳模型
+            checkpoint = torch.load(output_dir / 'best_model.pth', map_location=device, weights_only=False)
+            model_to_load = model.module if isinstance(model, DDP) else model
+            model_to_load.load_state_dict(checkpoint['model_state_dict'])
+            model.eval()
+            
+            # 在测试集上评估
+            test_losses = AverageMeter()
+            test_maes = AverageMeter()
+            all_test_preds = []
+            all_test_targets = []
+            
+            with torch.no_grad():
+                for images, ages in tqdm(test_loader, desc='Testing'):
+                    images = images.to(device)
+                    ages = ages.to(device)
+                    
+                    outputs = model(images)
+                    loss = criterion(outputs, ages)
+                    mae = torch.abs(outputs - ages).mean()
+                    
+                    batch_size = images.size(0)
+                    test_losses.update(loss.item(), batch_size)
+                    test_maes.update(mae.item(), batch_size)
+                    
+                    all_test_preds.extend(outputs.cpu().numpy())
+                    all_test_targets.extend(ages.cpu().numpy())
+            
+            # 计算详细指标
+            all_test_preds = np.array(all_test_preds)
+            all_test_targets = np.array(all_test_targets)
+            test_rmse = np.sqrt(np.mean((all_test_preds - all_test_targets) ** 2))
+            test_r2 = 1 - np.sum((all_test_targets - all_test_preds)**2) / np.sum((all_test_targets - np.mean(all_test_targets))**2)
+            
+            # 计算误差分布
+            errors = all_test_preds - all_test_targets
+            abs_errors = np.abs(errors)
+            
+            # 保存测试结果
+            test_results = {
+                'test_performance': {
+                    'loss': float(test_losses.avg),
+                    'mae': float(test_maes.avg),
+                    'rmse': float(test_rmse),
+                    'r2_score': float(test_r2),
+                },
+                'error_distribution': {
+                    'mean_error': float(np.mean(errors)),
+                    'std_error': float(np.std(errors)),
+                    'median_error': float(np.median(errors)),
+                    'mean_abs_error': float(np.mean(abs_errors)),
+                    'median_abs_error': float(np.median(abs_errors)),
+                    'max_error': float(np.max(abs_errors)),
+                    'min_error': float(np.min(abs_errors)),
+                },
+                'error_percentiles': {
+                    '25th': float(np.percentile(abs_errors, 25)),
+                    '50th': float(np.percentile(abs_errors, 50)),
+                    '75th': float(np.percentile(abs_errors, 75)),
+                    '90th': float(np.percentile(abs_errors, 90)),
+                    '95th': float(np.percentile(abs_errors, 95)),
+                    '99th': float(np.percentile(abs_errors, 99)),
+                },
+                'accuracy_ranges': {
+                    'within_3_years': float(np.sum(abs_errors <= 3) / len(abs_errors) * 100),
+                    'within_5_years': float(np.sum(abs_errors <= 5) / len(abs_errors) * 100),
+                    'within_7_years': float(np.sum(abs_errors <= 7) / len(abs_errors) * 100),
+                    'within_10_years': float(np.sum(abs_errors <= 10) / len(abs_errors) * 100),
+                },
+                'best_model_info': {
+                    'epoch': int(checkpoint['epoch']),
+                    'val_mae': float(checkpoint['val_mae']),
+                    'val_rmse': float(checkpoint['val_rmse']),
+                },
+            }
+            
+            with open(output_dir / 'test_results.json', 'w', encoding='utf-8') as f:
+                json.dump(test_results, f, indent=2, ensure_ascii=False)
+            print(f'\n测试结果已保存: {output_dir / "test_results.json"}')
+            
+            # 保存预测详情到CSV
+            import pandas as pd
+            predictions_df = pd.DataFrame({
+                'true_age': all_test_targets.flatten(),
+                'predicted_age': all_test_preds.flatten(),
+                'error': errors.flatten(),
+                'abs_error': abs_errors.flatten(),
+            })
+            predictions_df.to_csv(output_dir / 'test_predictions.csv', index=False)
+            print(f'预测详情已保存: {output_dir / "test_predictions.csv"}')
+            
+            # 打印测试结果摘要
+            print('\n' + '='*60)
+            print('测试集评估结果:')
+            print('='*60)
+            print(f'Loss: {test_losses.avg:.4f}')
+            print(f'MAE:  {test_maes.avg:.2f} years')
+            print(f'RMSE: {test_rmse:.2f} years')
+            print(f'R²:   {test_r2:.4f}')
+            print('\n误差分布:')
+            print(f'  平均误差: {np.mean(errors):.2f} ± {np.std(errors):.2f} years')
+            print(f'  中位数绝对误差: {np.median(abs_errors):.2f} years')
+            print(f'  最大绝对误差: {np.max(abs_errors):.2f} years')
+            print('\n准确度范围:')
+            print(f'  ±3年内:  {test_results["accuracy_ranges"]["within_3_years"]:.1f}%')
+            print(f'  ±5年内:  {test_results["accuracy_ranges"]["within_5_years"]:.1f}%')
+            print(f'  ±7年内:  {test_results["accuracy_ranges"]["within_7_years"]:.1f}%')
+            print(f'  ±10年内: {test_results["accuracy_ranges"]["within_10_years"]:.1f}%')
+            print('='*60)
+            
+            print(f'\n训练完成!')
+            print(f'最佳模型: Epoch {best_epoch}, Val MAE: {best_val_mae:.2f} years')
+            print(f'测试集性能: MAE {test_maes.avg:.2f} years, RMSE {test_rmse:.2f} years')
+            print(f'\n所有结果保存在: {output_dir}')
+            print(f'  - 最佳模型: best_model.pth')
+            print(f'  - 训练曲线: training_curves.png')
+            print(f'  - 训练历史: history.json')
+            print(f'  - 配置文件: config.json')
+            print(f'  - 命令脚本: command.sh')
+            """
         
-        # 计算详细指标
-        all_test_preds = np.array(all_test_preds)
-        all_test_targets = np.array(all_test_targets)
-        test_rmse = np.sqrt(np.mean((all_test_preds - all_test_targets) ** 2))
-        test_r2 = 1 - np.sum((all_test_targets - all_test_preds)**2) / np.sum((all_test_targets - np.mean(all_test_targets))**2)
-        
-        # 计算误差分布
-        errors = all_test_preds - all_test_targets
-        abs_errors = np.abs(errors)
-        
-        # 保存测试结果
-        test_results = {
-            'test_performance': {
-                'loss': float(test_losses.avg),
-                'mae': float(test_maes.avg),
-                'rmse': float(test_rmse),
-                'r2_score': float(test_r2),
-            },
-            'error_distribution': {
-                'mean_error': float(np.mean(errors)),
-                'std_error': float(np.std(errors)),
-                'median_error': float(np.median(errors)),
-                'mean_abs_error': float(np.mean(abs_errors)),
-                'median_abs_error': float(np.median(abs_errors)),
-                'max_error': float(np.max(abs_errors)),
-                'min_error': float(np.min(abs_errors)),
-            },
-            'error_percentiles': {
-                '25th': float(np.percentile(abs_errors, 25)),
-                '50th': float(np.percentile(abs_errors, 50)),
-                '75th': float(np.percentile(abs_errors, 75)),
-                '90th': float(np.percentile(abs_errors, 90)),
-                '95th': float(np.percentile(abs_errors, 95)),
-                '99th': float(np.percentile(abs_errors, 99)),
-            },
-            'accuracy_ranges': {
-                'within_3_years': float(np.sum(abs_errors <= 3) / len(abs_errors) * 100),
-                'within_5_years': float(np.sum(abs_errors <= 5) / len(abs_errors) * 100),
-                'within_7_years': float(np.sum(abs_errors <= 7) / len(abs_errors) * 100),
-                'within_10_years': float(np.sum(abs_errors <= 10) / len(abs_errors) * 100),
-            },
-            'best_model_info': {
-                'epoch': int(checkpoint['epoch']),
-                'val_mae': float(checkpoint['val_mae']),
-                'val_rmse': float(checkpoint['val_rmse']),
-            },
+        train_time = time.time() - start_time
+        result = {
+            'best_val_mae': float(best_val_mae),
+            'best_epoch': int(best_epoch),
+            'train_time': float(train_time),
+            'output_dir': str(output_dir) if output_dir is not None else None
         }
-        
-        with open(output_dir / 'test_results.json', 'w', encoding='utf-8') as f:
-            json.dump(test_results, f, indent=2, ensure_ascii=False)
-        print(f'\n测试结果已保存: {output_dir / "test_results.json"}')
-        
-        # 保存预测详情到CSV
-        import pandas as pd
-        predictions_df = pd.DataFrame({
-            'true_age': all_test_targets.flatten(),
-            'predicted_age': all_test_preds.flatten(),
-            'error': errors.flatten(),
-            'abs_error': abs_errors.flatten(),
-        })
-        predictions_df.to_csv(output_dir / 'test_predictions.csv', index=False)
-        print(f'预测详情已保存: {output_dir / "test_predictions.csv"}')
-        
-        # 打印测试结果摘要
-        print('\n' + '='*60)
-        print('测试集评估结果:')
-        print('='*60)
-        print(f'Loss: {test_losses.avg:.4f}')
-        print(f'MAE:  {test_maes.avg:.2f} years')
-        print(f'RMSE: {test_rmse:.2f} years')
-        print(f'R²:   {test_r2:.4f}')
-        print('\n误差分布:')
-        print(f'  平均误差: {np.mean(errors):.2f} ± {np.std(errors):.2f} years')
-        print(f'  中位数绝对误差: {np.median(abs_errors):.2f} years')
-        print(f'  最大绝对误差: {np.max(abs_errors):.2f} years')
-        print('\n准确度范围:')
-        print(f'  ±3年内:  {test_results["accuracy_ranges"]["within_3_years"]:.1f}%')
-        print(f'  ±5年内:  {test_results["accuracy_ranges"]["within_5_years"]:.1f}%')
-        print(f'  ±7年内:  {test_results["accuracy_ranges"]["within_7_years"]:.1f}%')
-        print(f'  ±10年内: {test_results["accuracy_ranges"]["within_10_years"]:.1f}%')
-        print('='*60)
-        
-        print(f'\n训练完成!')
-        print(f'最佳模型: Epoch {best_epoch}, Val MAE: {best_val_mae:.2f} years')
-        print(f'测试集性能: MAE {test_maes.avg:.2f} years, RMSE {test_rmse:.2f} years')
-        print(f'\n所有结果保存在: {output_dir}')
-        print(f'  - 最佳模型: best_model.pth')
-        print(f'  - 训练曲线: training_curves.png')
-        print(f'  - 训练历史: history.json')
-        print(f'  - 配置文件: config.json')
-        print(f'  - 命令脚本: command.sh')
-        """
+    finally:
+        # 清理DDP
+        cleanup_ddp()
     
-    # 清理DDP
-    cleanup_ddp()
+    return result
 
 
-if __name__ == '__main__':
+def create_arg_parser():
     parser = argparse.ArgumentParser(description='训练TA超声图像年龄预测模型（支持DDP）')
     
     # 数据参数
@@ -1209,12 +1451,24 @@ if __name__ == '__main__':
     parser.add_argument('--batch-size', type=int, default=32, help='每个GPU的批次大尋')
     parser.add_argument('--lr', type=float, default=1e-4, help='初始学习率（默认1e-4，更稳定）')
     parser.add_argument('--weight-decay', type=float, default=1e-4, help='权重衰减')
+    parser.add_argument('--optimizer', type=str, default='adamw', choices=['adamw', 'sgd'], help='优化器类型')
+    parser.add_argument('--momentum', type=float, default=0.9, help='SGD动量')
     parser.add_argument('--num-workers', type=int, default=8, help='数据加载线程数')
+    parser.add_argument('--no-save', action='store_true', help='禁用训练输出保存')
+    parser.add_argument('--deterministic', action='store_true', help='启用确定性训练设置')
     
     # 学习率调度参数
     parser.add_argument('--eta-min', type=float, default=1e-7, help='最小学习率')
     parser.add_argument('--warmup-epochs', type=int, default=5, help='Warmup轮数（线性增加lr）')
     parser.add_argument('--max-grad-norm', type=float, default=1.0, help='梯度裁剪阈值')
+    parser.add_argument('--scheduler', type=str, default='cosine', choices=['cosine', 'step', 'plateau', 'none'], help='学习率调度器')
+    parser.add_argument('--step-size', type=int, default=10, help='StepLR步长')
+    parser.add_argument('--gamma', type=float, default=0.1, help='StepLR衰减系数')
+    parser.add_argument('--lr-patience', type=int, default=5, help='Plateau调度器耐心值')
+    parser.add_argument('--lr-factor', type=float, default=0.1, help='Plateau调度器衰减系数')
+    parser.add_argument('--lr-min-lr', type=float, default=1e-7, help='Plateau最小学习率')
+    parser.add_argument('--use-ema', action='store_true', help='启用EMA')
+    parser.add_argument('--ema-decay', type=float, default=0.999, help='EMA衰减系数')
     
     # 集成训练参数
     parser.add_argument('--ensemble', action='store_true', help='启用集成训练模式')
@@ -1225,11 +1479,15 @@ if __name__ == '__main__':
                        default=[0, 1, 2, 3, 4, 5],
                        help='集成训练使用的GPU列表')
     
+    return parser
+
+
+if __name__ == '__main__':
+    parser = create_arg_parser()
     args = parser.parse_args()
     
     # 设置随机种子
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
+    seed_everything(args.seed, deterministic=args.deterministic)
     
     # 开始训练
     if args.ensemble:

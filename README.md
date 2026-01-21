@@ -50,10 +50,10 @@ python evaluate.py \
   --max-age 88
 
 # 对比多个模型的评估结果
-python compare_evaluations.py evaluation_results/*/test_metrics.json
+python tools/compare_evaluations.py evaluation_results/*/test_metrics.json
 
 # 可视化错误样本（生成交互式HTML报告）
-python analyze_error_samples.py \
+python tools/analyze_error_samples.py \
   --result-dir evaluation_results/run_xxx \
   --image-dir data/TA \
   --max-samples 30
@@ -85,11 +85,11 @@ usage_predict/
 
 ### 工具脚本
 ```
-├── analyze_error_samples.py      # 交互式错误分析（生成HTML报告）
-├── compare_evaluations.py        # 多模型评估结果对比
-├── summarize_ablation_results.py # 消融实验结果汇总
-├── verify_no_leakage.py          # 数据泄露验证（重新执行划分逻辑）
-└── run_ablation_study.sh         # 批量消融实验脚本
+├── tools/analyze_error_samples.py      # 交互式错误分析（生成HTML报告）
+├── tools/compare_evaluations.py        # 多模型评估结果对比
+├── tools/summarize_ablation_results.py # 消融实验结果汇总
+├── tools/verify_no_leakage.py          # 数据泄露验证（重新执行划分逻辑）
+└── tools/run_ablation_study.sh         # 批量消融实验脚本
 ```
 
 ### 文档
@@ -148,7 +148,7 @@ bash scripts/show_structure.sh
 python scripts/analyze_dataset.py
 
 # 验证数据泄漏
-python scripts/verify_no_leakage.py
+python tools/verify_no_leakage.py
 
 # 可视化图像尺寸
 python scripts/visualize_image_sizes.py
@@ -157,7 +157,7 @@ python scripts/visualize_image_sizes.py
 python scripts/plot_age_error.py
 
 # 错误样本可视化（HTML报告）
-python analyze_error_samples.py --help
+python tools/analyze_error_samples.py --help
 ```
 
 ## 🎯 核心特性
@@ -242,10 +242,10 @@ python train.py --use-aux-features --aux-skewness --aux-intensity --aux-clarity
 **消融实验**:
 ```bash
 # 运行完整消融实验（10个配置）
-bash run_ablation_study.sh
+bash tools/run_ablation_study.sh
 
 # 查看结果汇总
-python summarize_ablation_results.py
+python tools/summarize_ablation_results.py
 ```
 - `--use-aux-features`: 启用辅助特征（必选）
 - `--aux-gender`: 使用性别特征
