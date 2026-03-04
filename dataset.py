@@ -292,11 +292,13 @@ def load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_stat
     train_transforms_list.extend([
         # 旋转角度和水平翻转在这里控制，后续可以测试不同的增强组合
         transforms.RandomRotation(degrees=10),
-        #transforms.RandomHorizontalFlip(p=0.5),
+        # transforms.RandomHorizontalFlip(p=0.5),
         transforms.ColorJitter(brightness=0.2, contrast=0.2),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], 
-                           std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean = [0.2637, 0.2637, 0.2637], 
+                           std  = [0.1449, 0.1449, 0.1449])
+        # transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+        #                    std=[0.229, 0.224, 0.225])
     ])
     
     # 验证集和测试集不增强

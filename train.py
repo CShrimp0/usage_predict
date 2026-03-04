@@ -20,6 +20,7 @@ import os
 import argparse
 import random
 import time
+from sympy import false
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -1011,9 +1012,13 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False, reporter=None):
         if is_main_process:
             print(f'使用辅助特征，总维度: {aux_dim}')
     
+    if is_main_process:
+        print('准备将模型加载到设备...')
     model = get_model(current_model, pretrained=args.pretrained, dropout=args.dropout,
                      aux_input_dim=aux_dim, aux_hidden_dim=args.aux_hidden_dim if hasattr(args, 'aux_hidden_dim') else 32)
     model = model.to(device)
+    if is_main_process:
+        print('模型已加载到设备')
 
     # EMA初始化（仅参数）
     base_model = model.module if isinstance(model, DDP) else model
@@ -1415,8 +1420,8 @@ def create_arg_parser():
     parser.add_argument('--seed', type=int, default=42, help='随机种子')
     parser.add_argument('--age-bin-width', type=int, default=10,
                        help='年龄分组宽度（岁）- 年龄分层抽样始终启用')
-    parser.add_argument('--min-age', type=float, default=0,
-                       help='最小年龄（包含），默认0岁')
+    parser.add_argument('--min-age', type=float, default=18,
+                       help='最小年龄（包含），默认18岁')
     parser.add_argument('--max-age', type=float, default=100,
                        help='最大年龄（包含），默认100岁')
     
@@ -1430,8 +1435,10 @@ def create_arg_parser():
     parser.add_argument('--image-size', type=int, default=224,
                        choices=[224, 256],
                        help='输入图像尺寸')
-    parser.add_argument('--pretrained', action='store_true', default=True,
-                       help='使用ImageNet预训练权重')
+    parser.add_argument('--pretrained', action='store_true', default=False,
+                       help='不使用ImageNet预训练权重')
+    # parser.add_argument('--pretrained', action='store_true', default=True,
+    #                    help='使用ImageNet预训练权重')
     parser.add_argument('--dropout', type=float, default=0.5, help='Dropout比例')
     
     # 多模态特征参数

@@ -1,0 +1,172 @@
+{
+  "evaluation_info": {
+    "checkpoint_path": "/home/szdx/LNX/usage_predict/outputs/run_20260122_154712/best_model.pth",
+    "evaluation_time": "2026-01-23 11:33:22",
+    "device": "cuda"
+  },
+  "model_config": {
+    "architecture": "resnet50",
+    "dropout": 0.4591295356575337,
+    "best_epoch": 17,
+    "val_mae": 10.150037260861856
+  },
+  "dataset_config": {
+    "test_size": 0.15,
+    "val_size": 0.15,
+    "seed": 42,
+    "use_age_stratify": true,
+    "age_bin_width": 10,
+    "age_range": "18.0-100",
+    "total_samples": 391
+  },
+  "overall_metrics": {
+    "MAE": {
+      "value": 10.729392051696777,
+      "description": "平均绝对误差 (Mean Absolute Error)",
+      "unit": "years"
+    },
+    "RMSE": {
+      "value": 13.069082260131836,
+      "description": "均方根误差 (Root Mean Square Error)",
+      "unit": "years"
+    },
+    "Correlation": {
+      "value": 0.6050099028925404,
+      "description": "皮尔逊相关系数 (Pearson Correlation Coefficient)",
+      "range": "[-1, 1]"
+    },
+    "Accuracy_5years": {
+      "value": 27.621483375959077,
+      "description": "5年误差内准确率",
+      "unit": "%"
+    },
+    "Accuracy_10years": {
+      "value": 52.94117647058824,
+      "description": "10年误差内准确率",
+      "unit": "%"
+    },
+    "Accuracy_15years": {
+      "value": 73.65728900255755,
+      "description": "15年误差内准确率",
+      "unit": "%"
+    }
+  },
+  "age_group_analysis": [
+    {
+      "age_range": "10-20",
+      "start_age": 10,
+      "end_age": 20,
+      "count": 6,
+      "mae": 26.3621883392334,
+      "rmse": 27.04477882385254,
+      "mean_true_age": 19.683752059936523,
+      "mean_pred_age": 46.04594039916992,
+      "true_mean": 19.683752059936523,
+      "pred_mean": 46.04594039916992
+    },
+    {
+      "age_range": "20-30",
+      "start_age": 20,
+      "end_age": 30,
+      "count": 34,
+      "mae": 21.398395538330078,
+      "rmse": 22.04663848876953,
+      "mean_true_age": 26.852603912353516,
+      "mean_pred_age": 48.25100326538086,
+      "true_mean": 26.852603912353516,
+      "pred_mean": 48.25100326538086
+    },
+    {
+      "age_range": "30-40",
+      "start_age": 30,
+      "end_age": 40,
+      "count": 49,
+      "mae": 15.642004013061523,
+      "rmse": 16.92198944091797,
+      "mean_true_age": 35.47426986694336,
+      "mean_pred_age": 51.11627197265625,
+      "true_mean": 35.47426986694336,
+      "pred_mean": 51.11627197265625
+    },
+    {
+      "age_range": "40-50",
+      "start_age": 40,
+      "end_age": 50,
+      "count": 60,
+      "mae": 8.905219078063965,
+      "rmse": 9.997453689575195,
+      "mean_true_age": 46.10678482055664,
+      "mean_pred_age": 55.012001037597656,
+      "true_mean": 46.10678482055664,
+      "pred_mean": 55.012001037597656
+    },
+    {
+      "age_range": "50-60",
+      "start_age": 50,
+      "end_age": 60,
+      "count": 93,
+      "mae": 5.010393142700195,
+      "rmse": 6.019742012023926,
+      "mean_true_age": 55.33134841918945,
+      "mean_pred_age": 57.445831298828125,
+      "true_mean": 55.33134841918945,
+      "pred_mean": 57.445831298828125
+    },
+    {
+      "age_range": "60-70",
+      "start_age": 60,
+      "end_age": 70,
+      "count": 78,
+      "mae": 6.712345123291016,
+      "rmse": 8.35054874420166,
+      "mean_true_age": 64.7237548828125,
+      "mean_pred_age": 58.13937759399414,
+      "true_mean": 64.7237548828125,
+      "pred_mean": 58.13937759399414
+    },
+    {
+      "age_range": "70-80",
+      "start_age": 70,
+      "end_age": 80,
+      "count": 60,
+      "mae": 13.622723579406738,
+      "rmse": 14.828603744506836,
+      "mean_true_age": 74.3300552368164,
+      "mean_pred_age": 60.70733642578125,
+      "true_mean": 74.3300552368164,
+      "pred_mean": 60.70733642578125
+    },
+    {
+      "age_range": "80-90",
+      "start_age": 80,
+      "end_age": 90,
+      "count": 11,
+      "mae": 18.346284866333008,
+      "rmse": 18.679424285888672,
+      "mean_true_age": 81.66860961914062,
+      "mean_pred_age": 63.322322845458984,
+      "true_mean": 81.66860961914062,
+      "pred_mean": 63.322322845458984
+    }
+  ],
+  "error_analysis": {
+    "description": "误差分析结果 (Error Analysis)",
+    "outlier_threshold": {
+      "value": 25.653343200683594,
+      "description": "异常值阈值 (mean + 2*std)",
+      "unit": "years"
+    },
+    "outlier_count": {
+      "value": 22,
+      "description": "异常样本数量",
+      "percentage": 5.63
+    },
+    "statistics": {
+      "mean_mae": 10.729392051696777,
+      "std_mae": 7.461976051330566,
+      "description": "误差统计 (均值 ± 标准差)"
+    },
+    "high_error_samples_file": "high_error_samples.txt",
+    "low_error_samples_file": "low_error_samples.txt"
+  }
+}

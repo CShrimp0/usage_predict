@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+import fcntl
 
 import optuna
 from optuna.trial import TrialState
@@ -73,6 +74,7 @@ def build_objective(base_args, max_epochs):
         args.epochs = max_epochs
         args.ensemble = False
         args.min_age = MIN_AGE_FIXED
+        args.patience = max_epochs + 1
 
         args.lr = trial.suggest_float('learning_rate', 1e-5, 5e-3, log=True)
         args.weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-2, log=True)
@@ -132,6 +134,8 @@ def build_objective(base_args, max_epochs):
 def worker_loop(gpu_id, opt_args, train_args, storage_url, log_path):
     if gpu_id is not None:
         os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
+    output_root = Path('outputs') / 'hparam_search' / opt_args.study_name
+    output_root.mkdir(parents=True, exist_ok=True)
     parser = train_module.create_arg_parser()
     base_args = parser.parse_args(train_args)
     base_params = load_base_params(opt_args.base_params)
@@ -156,16 +160,42 @@ def worker_loop(gpu_id, opt_args, train_args, storage_url, log_path):
     with open(log_path, 'a', encoding='utf-8') as f:
         f.write(f'[worker {gpu_id}] start\n')
     while True:
-        finished = len(study.get_trials(deepcopy=False, states=(
-            TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL
-        )))
-        if finished >= opt_args.n_trials:
-            break
         if opt_args.timeout and (time.time() - start_time) >= opt_args.timeout:
+            break
+        if not acquire_trial_slot(study, output_root, opt_args.n_trials):
             break
         study.optimize(objective, n_trials=1, catch=(Exception,))
     with open(log_path, 'a', encoding='utf-8') as f:
         f.write(f'[worker {gpu_id}] done\n')
+
+
+def acquire_trial_slot(study, output_root, max_trials):
+    budget_path = output_root / 'trial_budget.json'
+    lock_path = output_root / 'trial_budget.lock'
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, 'w', encoding='utf-8') as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        issued = 0
+        if budget_path.exists():
+            with open(budget_path, 'r', encoding='utf-8') as f:
+                try:
+                    issued = int(json.load(f).get('issued', 0))
+                except Exception:
+                    issued = 0
+        waiting_state = getattr(TrialState, 'WAITING', None)
+        running_states = [TrialState.RUNNING]
+        if waiting_state is not None:
+            running_states.append(waiting_state)
+        total_trials = len(study.get_trials(deepcopy=False, states=(
+            TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL, *running_states
+        )))
+        issued = max(issued, total_trials)
+        if issued >= max_trials:
+            return False
+        issued += 1
+        with open(budget_path, 'w', encoding='utf-8') as f:
+            json.dump({'issued': issued}, f)
+        return True
 
 
 def save_results(study, output_root):
@@ -187,8 +217,86 @@ def save_results(study, output_root):
         df = study.trials_dataframe(attrs=('number', 'value', 'state', 'params', 'user_attrs'))
         df['fail_reason'] = df['user_attrs'].apply(lambda x: x.get('fail_reason') if isinstance(x, dict) else None)
         df.to_csv(output_root / 'results.csv', index=False)
+        ranked = df[df['state'] == 'COMPLETE'].sort_values('value')
+        ranked.to_csv(output_root / 'results_ranked.csv', index=False)
     except Exception:
         pass
+
+
+def summarize_param_effects(completed_trials):
+    metrics = {}
+    if not completed_trials:
+        return metrics
+
+    values = [t.value for t in completed_trials]
+    params = [t.params for t in completed_trials]
+    keys = sorted({k for p in params for k in p})
+
+    for key in keys:
+        col = [p.get(key) for p in params]
+        if all(isinstance(x, (int, float)) for x in col):
+            ranked = sorted(zip(col, values), key=lambda x: x[0])
+            xs = [x for x, _ in ranked]
+            ys = [y for _, y in ranked]
+            n = len(xs)
+            if n < 3 or max(xs) == min(xs):
+                metrics[key] = {'type': 'numeric', 'spearman': 0.0, 'range': (min(xs), max(xs))}
+                continue
+            xranks = {v: i for i, v in enumerate(sorted(set(xs)))}
+            yranks = {v: i for i, v in enumerate(sorted(set(ys)))}
+            xranked = [xranks[v] for v in xs]
+            yranked = [yranks[v] for v in ys]
+            mean_x = sum(xranked) / n
+            mean_y = sum(yranked) / n
+            cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xranked, yranked))
+            var_x = sum((x - mean_x) ** 2 for x in xranked)
+            var_y = sum((y - mean_y) ** 2 for y in yranked)
+            spearman = 0.0 if var_x == 0 or var_y == 0 else cov / (var_x ** 0.5 * var_y ** 0.5)
+            metrics[key] = {'type': 'numeric', 'spearman': spearman, 'range': (min(xs), max(xs))}
+        else:
+            buckets = {}
+            for v, y in zip(col, values):
+                buckets.setdefault(v, []).append(y)
+            means = {k: sum(v) / len(v) for k, v in buckets.items()}
+            spread = max(means.values()) - min(means.values()) if means else 0.0
+            metrics[key] = {'type': 'categorical', 'means': means, 'spread': spread}
+    return metrics
+
+
+def detect_high_perf_region(completed_trials, top_frac=0.1):
+    if not completed_trials:
+        return {}
+    top_n = max(1, int(len(completed_trials) * top_frac))
+    top_trials = sorted(completed_trials, key=lambda t: t.value)[:top_n]
+    params = [t.params for t in top_trials]
+    region = {}
+    keys = sorted({k for p in params for k in p})
+    for key in keys:
+        vals = [p.get(key) for p in params]
+        if all(isinstance(x, (int, float)) for x in vals):
+            region[key] = {'min': min(vals), 'max': max(vals)}
+        else:
+            counts = {}
+            for v in vals:
+                counts[v] = counts.get(v, 0) + 1
+            region[key] = {'top_categories': sorted(counts.items(), key=lambda x: x[1], reverse=True)}
+    return region
+
+
+def summarize_failure_bias(trials, states):
+    filtered = [t for t in trials if t.state in states]
+    if not filtered:
+        return {}
+    params = [t.params for t in filtered]
+    keys = sorted({k for p in params for k in p})
+    bias = {}
+    for key in keys:
+        vals = [p.get(key) for p in params]
+        counts = {}
+        for v in vals:
+            counts[v] = counts.get(v, 0) + 1
+        bias[key] = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]
+    return bias
 
 
 def save_summary(study, output_root, base_params):
@@ -196,6 +304,10 @@ def save_summary(study, output_root, base_params):
     failed = [t for t in study.trials if t.state == TrialState.FAIL]
     pruned = [t for t in study.trials if t.state == TrialState.PRUNED]
     best = study.best_trial if completed else None
+    param_effects = summarize_param_effects(completed)
+    high_region = detect_high_perf_region(completed)
+    fail_bias = summarize_failure_bias(study.trials, {TrialState.FAIL})
+    prune_bias = summarize_failure_bias(study.trials, {TrialState.PRUNED})
 
     lines = [
         '# Optuna搜索总结',
@@ -209,6 +321,25 @@ def save_summary(study, output_root, base_params):
         lines.append(f'- 最佳MAE: {best.value}')
         lines.append(f'- 最佳trial: {best.number}')
         lines.append(f'- 最佳参数: {json.dumps(best.params, ensure_ascii=False)}')
+    if completed:
+        strongest = sorted(
+            [(k, abs(v.get('spearman', 0.0)), v) for k, v in param_effects.items()],
+            key=lambda x: x[1],
+            reverse=True
+        )
+        lines.append('## 参数影响（基于完成trial）')
+        for k, score, meta in strongest:
+            if meta['type'] == 'numeric':
+                lines.append(f'- {k}: spearman={meta["spearman"]:.3f} range={meta["range"]}')
+            else:
+                lines.append(f'- {k}: spread={meta["spread"]:.3f} means={meta["means"]}')
+        lines.append('## 高性能区域（Top10% trial）')
+        lines.append(json.dumps(high_region, ensure_ascii=False))
+        lines.append('## 失败/剪枝集中趋势')
+        lines.append(f'- fail_top: {json.dumps(fail_bias, ensure_ascii=False)}')
+        lines.append(f'- pruned_top: {json.dumps(prune_bias, ensure_ascii=False)}')
+        lines.append('## short-run 排名可信度')
+        lines.append('- 仅基于短训练轮数的相对排序；若有 full-run 结果需重新验证排名一致性。')
     if base_params:
         lines.append(f'- base_params: {json.dumps(base_params, ensure_ascii=False)}')
 

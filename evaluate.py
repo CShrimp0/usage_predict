@@ -1080,7 +1080,7 @@ if __name__ == '__main__':
     parser.add_argument('--test-size', type=float, default=0.15, help='测试集比例（默认从checkpoint读取）')
     parser.add_argument('--val-size', type=float, default=0.15, help='验证集比例（默认从checkpoint读取）')
     parser.add_argument('--seed', type=int, default=42, help='随机种子（默认从checkpoint读取）')
-    parser.add_argument('--min-age', type=float, default=0, help='最小年龄（默认从checkpoint读取）')
+    parser.add_argument('--min-age', type=float, default=18, help='最小年龄（默认从checkpoint读取）')
     parser.add_argument('--max-age', type=float, default=100, help='最大年龄（默认从checkpoint读取）')
     
     # 评估参数
