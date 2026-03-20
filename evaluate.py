@@ -797,14 +797,14 @@ def main(args):
     checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
     train_args = checkpoint.get('args', {})
     
-    # 使用训练时的划分参数，确保数据划分一致
-    test_size = train_args.get('test_size', args.test_size)
-    val_size = train_args.get('val_size', args.val_size)
-    seed = train_args.get('seed', args.seed)
-    use_age_stratify = train_args.get('use_age_stratify', True)  # 默认使用分层抽样
-    age_bin_width = train_args.get('age_bin_width', 10)
-    min_age = train_args.get('min_age', args.min_age)
-    max_age = train_args.get('max_age', args.max_age)
+    # 使用训练时参数，优先读取checkpoint顶层，其次args，最后命令行默认值
+    test_size = checkpoint.get('test_size', train_args.get('test_size', args.test_size))
+    val_size = checkpoint.get('val_size', train_args.get('val_size', args.val_size))
+    seed = checkpoint.get('seed', train_args.get('seed', args.seed))
+    use_age_stratify = checkpoint.get('use_age_stratify', train_args.get('use_age_stratify', True))  # 默认使用分层抽样
+    age_bin_width = checkpoint.get('age_bin_width', train_args.get('age_bin_width', 10))
+    min_age = checkpoint.get('min_age', train_args.get('min_age', args.min_age))
+    max_age = checkpoint.get('max_age', train_args.get('max_age', args.max_age))
     
     print(f'\n⚠️  使用与训练一致的数据划分参数（防止数据泄漏）:')
     print(f'    test_size={test_size}, val_size={val_size}, seed={seed}')
@@ -838,8 +838,8 @@ def main(args):
     )
     
     # 创建模型
-    model_name = train_args.get('model', 'resnet50')
-    dropout = train_args.get('dropout', 0.5)
+    model_name = checkpoint.get('model', train_args.get('model', 'resnet50'))
+    dropout = checkpoint.get('dropout', train_args.get('dropout', 0.5))
     
     print(f'\n创建模型: {model_name}, dropout={dropout}')
     model = get_model(model_name, pretrained=False, dropout=dropout)
