@@ -83,11 +83,42 @@ class ExponentialMovingAverage:
         self.backup = {}
 
 
-def get_loss_function(loss_type='mae'):
+class RTMHuberLoss(nn.Module):
+    """Huber + anti-regression-to-the-mean penalty."""
+
+    def __init__(self, mu, std, lambda_rtm=0.1, delta=1.0, eps=1e-6):
+        super().__init__()
+        self.mu = float(mu)
+        self.std = float(std)
+        self.lambda_rtm = float(lambda_rtm)
+        self.delta = float(delta)
+        self.eps = float(eps)
+        self.huber = nn.HuberLoss(delta=self.delta, reduction='mean')
+
+    def forward(self, pred, target):
+        pred = pred.float().view(-1)
+        target = target.float().view(-1)
+
+        huber_loss = self.huber(pred, target)
+
+        mu_t = pred.new_tensor(self.mu)
+        std_t = pred.new_tensor(self.std)
+        eps_t = pred.new_tensor(self.eps)
+
+        d_true = torch.abs(target - mu_t)
+        d_pred = torch.abs(pred - mu_t)
+        shrink_penalty = torch.relu(d_true - d_pred)
+        weight = d_true / (std_t + eps_t)
+        rtm_penalty = (weight * shrink_penalty).mean()
+
+        return huber_loss + self.lambda_rtm * rtm_penalty
+
+
+def get_loss_function(loss_type='mae', lambda_rtm=0.1, train_age_mean=None, train_age_std=None, huber_delta=1.0):
     """获取损失函数
     
     Args:
-        loss_type: 损失函数类型 ('mae', 'mse', 'smoothl1', 'huber')
+        loss_type: 损失函数类型 ('mae', 'mse', 'smoothl1', 'huber', 'rtm_huber')
     
     Returns:
         损失函数实例
@@ -100,9 +131,18 @@ def get_loss_function(loss_type='mae'):
     elif loss_type == 'smoothl1':
         return nn.SmoothL1Loss()
     elif loss_type == 'huber':
-        return nn.HuberLoss()
+        return nn.HuberLoss(delta=huber_delta)
+    elif loss_type == 'rtm_huber':
+        if train_age_mean is None or train_age_std is None:
+            raise ValueError("rtm_huber 需要提供 train_age_mean 和 train_age_std")
+        return RTMHuberLoss(
+            mu=train_age_mean,
+            std=train_age_std,
+            lambda_rtm=lambda_rtm,
+            delta=huber_delta
+        )
     else:
-        raise ValueError(f"不支持的损失函数类型: {loss_type}。支持: mae, mse, smoothl1, huber")
+        raise ValueError(f"不支持的损失函数类型: {loss_type}。支持: mae, mse, smoothl1, huber, rtm_huber")
 
 
 def load_dataset_module(image_size=224, use_age_stratify=True, age_bin_width=10,
@@ -223,6 +263,8 @@ def generate_command_line(args):
         'age_bin_width': '年龄分组宽度（岁）',
         'model': '模型架构',
         'loss': '损失函数类型',
+        'lambda_rtm': 'RTM惩罚系数（仅rtm_huber）',
+        'huber_delta': 'Huber损失delta参数',
         'image_size': '输入图像尺寸',
         'pretrained': '使用ImageNet预训练权重',
         'dropout': 'Dropout比例',
@@ -283,6 +325,10 @@ def generate_command_line(args):
     cmd_parts.append(f'        # {param_descriptions.get("image_size", "")}')
     cmd_parts.append(f'    --loss {args.loss} \\')
     cmd_parts.append(f'        # {param_descriptions.get("loss", "")}')
+    cmd_parts.append(f'    --lambda-rtm {args.lambda_rtm} \\')
+    cmd_parts.append(f'        # {param_descriptions.get("lambda_rtm", "")}')
+    cmd_parts.append(f'    --huber-delta {args.huber_delta} \\')
+    cmd_parts.append(f'        # {param_descriptions.get("huber_delta", "")}')
     
     # 数据增强和分层（年龄分层始终启用）
     cmd_parts.append(f'    --age-bin-width {args.age_bin_width} \\')
@@ -680,6 +726,10 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False, reporter=None):
         args.no_save = False
     if not hasattr(args, 'deterministic'):
         args.deterministic = False
+    if not hasattr(args, 'lambda_rtm'):
+        args.lambda_rtm = 0.1
+    if not hasattr(args, 'huber_delta'):
+        args.huber_delta = 1.0
 
     # 固定随机种子（每个进程使用不同但可复现的seed）
     base_seed = int(args.seed) + int(rank)
@@ -739,6 +789,16 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False, reporter=None):
         min_age=args.min_age,
         max_age=args.max_age
     )
+
+    # 使用训练集年龄统计值作为RTM惩罚的固定参考（训练/验证共用）
+    train_age_values = np.asarray(getattr(train_dataset, 'ages', []), dtype=np.float32)
+    if train_age_values.size == 0:
+        raise ValueError('无法从train_dataset提取年龄标签，无法计算RTM统计量')
+    train_age_mean = float(np.mean(train_age_values))
+    train_age_std = float(np.std(train_age_values))
+
+    if is_main_process:
+        print(f'训练集年龄统计: mu={train_age_mean:.4f}, s={train_age_std:.4f}')
     
     # 保存完整配置文件（包含数据集信息）
     if is_main_process and output_dir is not None:
@@ -870,12 +930,18 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False, reporter=None):
             'training': {
                 # 损失函数
                 'loss_function': args.loss.upper(),
+                'loss_name': args.loss.lower(),
                 'loss_description': {
                     'MAE': 'Mean Absolute Error (L1 Loss)',
                     'MSE': 'Mean Squared Error (L2 Loss)',
                     'SMOOTHL1': 'Smooth L1 Loss (Huber-like)',
                     'HUBER': 'Huber Loss',
+                    'RTM_HUBER': 'Huber + Anti-RTM Shrink Penalty',
                 }.get(args.loss.upper(), args.loss.upper()),
+                'lambda_rtm': float(args.lambda_rtm),
+                'huber_delta': float(args.huber_delta),
+                'train_age_mean': float(train_age_mean),
+                'train_age_std': float(train_age_std),
                 
                 # 优化器
                 'optimizer': args.optimizer,
@@ -1033,10 +1099,19 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False, reporter=None):
             print(f'模型已包装为DDP，将在 {world_size} 个GPU上训练')
     
     # 定义损失函数和优化器
-    criterion = get_loss_function(args.loss)
+    criterion = get_loss_function(
+        args.loss,
+        lambda_rtm=args.lambda_rtm,
+        train_age_mean=train_age_mean,
+        train_age_std=train_age_std,
+        huber_delta=args.huber_delta
+    )
     if is_main_process:
-        loss_name_map = {'mae': 'MAE (L1)', 'mse': 'MSE (L2)', 'smoothl1': 'Smooth L1', 'huber': 'Huber'}
+        loss_name_map = {'mae': 'MAE (L1)', 'mse': 'MSE (L2)', 'smoothl1': 'Smooth L1', 'huber': 'Huber', 'rtm_huber': 'RTM-Huber'}
         print(f'使用损失函数: {loss_name_map.get(args.loss.lower(), args.loss)}')
+        rtm_enabled = args.loss.lower() == 'rtm_huber'
+        print(f'RTM惩罚启用: {rtm_enabled}')
+        print(f'RTM参数: mu={train_age_mean:.4f}, s={train_age_std:.4f}, lambda_rtm={args.lambda_rtm}, huber_delta={args.huber_delta}')
     
     if args.optimizer == 'adamw':
         optimizer = optim.AdamW(
@@ -1186,6 +1261,10 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False, reporter=None):
                             'optimizer_state_dict': optimizer.state_dict(),
                             'val_mae': val_mae,
                             'val_rmse': val_rmse,
+                            'loss_name': args.loss.lower(),
+                            'lambda_rtm': float(args.lambda_rtm),
+                            'train_age_mean': float(train_age_mean),
+                            'train_age_std': float(train_age_std),
                             'args': vars(args)
                         }, output_dir / 'best_model.pth')
                         if ema is not None:
@@ -1202,7 +1281,11 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False, reporter=None):
                             'model_state_dict': model_to_save.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
                             'val_mae': val_mae,
-                            'val_rmse': val_rmse
+                            'val_rmse': val_rmse,
+                            'loss_name': args.loss.lower(),
+                            'lambda_rtm': float(args.lambda_rtm),
+                            'train_age_mean': float(train_age_mean),
+                            'train_age_std': float(train_age_std)
                         }, checkpoint_path)
                         if ema is not None:
                             ema.restore(model_to_save)
@@ -1430,15 +1513,19 @@ def create_arg_parser():
                        choices=['resnet50', 'efficientnet_b0', 'efficientnet_b1', 'convnext', 'mobilenet_v3', 'regnet'],
                        help='模型架构')
     parser.add_argument('--loss', type=str, default='mae',
-                       choices=['mae', 'mse', 'smoothl1', 'huber'],
+                       choices=['mae', 'mse', 'smoothl1', 'huber', 'rtm_huber'],
                        help='损失函数类型')
+    parser.add_argument('--lambda-rtm', type=float, default=0.1,
+                       help='RTM惩罚系数（仅rtm_huber使用）')
+    parser.add_argument('--huber-delta', type=float, default=1.0,
+                       help='Huber损失delta参数（huber/rtm_huber）')
     parser.add_argument('--image-size', type=int, default=224,
                        choices=[224, 256],
                        help='输入图像尺寸')
-    parser.add_argument('--pretrained', action='store_true', default=False,
-                       help='不使用ImageNet预训练权重')
-    # parser.add_argument('--pretrained', action='store_true', default=True,
-    #                    help='使用ImageNet预训练权重')
+    # parser.add_argument('--pretrained', action='store_true', default=False,
+    #                    help='不使用ImageNet预训练权重')
+    parser.add_argument('--pretrained', action='store_true', default=True,
+                       help='使用ImageNet预训练权重')
     parser.add_argument('--dropout', type=float, default=0.5, help='Dropout比例')
     
     # 多模态特征参数

@@ -295,10 +295,10 @@ def load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1, random_stat
         # transforms.RandomHorizontalFlip(p=0.5),
         transforms.ColorJitter(brightness=0.2, contrast=0.2),
         transforms.ToTensor(),
-        transforms.Normalize(mean = [0.2637, 0.2637, 0.2637], 
-                           std  = [0.1449, 0.1449, 0.1449])
-        # transforms.Normalize(mean=[0.485, 0.456, 0.406], 
-        #                    std=[0.229, 0.224, 0.225])
+        # transforms.Normalize(mean = [0.2637, 0.2637, 0.2637], 
+        #                    std  = [0.1449, 0.1449, 0.1449])
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+                           std=[0.229, 0.224, 0.225])
     ])
     
     # 验证集和测试集不增强
