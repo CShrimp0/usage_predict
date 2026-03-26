@@ -622,29 +622,60 @@ def plot_results(predictions, targets, output_dir, use_chinese=True):
     """绘制结果图表"""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # 设置样式
-    sns.set_style('whitegrid')
+    sns.set_theme(style='whitegrid', context='notebook')
     has_chinese = setup_chinese_font() if use_chinese else False
-    
+
+    predictions = np.asarray(predictions).flatten()
+    targets = np.asarray(targets).flatten()
+    errors = predictions - targets
+    abs_errors = np.abs(errors)
+
+    def annotate_bars(ax, bars, fmt='{:.1f}', offset=0.8, fontsize=9):
+        """在柱状图顶部标注数值。"""
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                height + offset,
+                fmt.format(height),
+                ha='center',
+                va='bottom',
+                fontsize=fontsize,
+                color='#2f2f2f'
+            )
+
     # 1. 预测值 vs 真实值散点图
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-    
+
     # 左图：散点图 + 回归线
     ax = axes[0]
-    ax.scatter(targets, predictions, alpha=0.5, s=30)
-    
-    # 绘制完美预测线
+    scatter = ax.scatter(
+        targets, predictions, c=abs_errors, cmap='viridis',
+        alpha=0.75, s=36, edgecolors='white', linewidths=0.4
+    )
+
     min_val = min(targets.min(), predictions.min())
     max_val = max(targets.max(), predictions.max())
     ax.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2, label='Perfect Prediction')
-    
-    # 拟合线性回归
+
     z = np.polyfit(targets, predictions, 1)
     p = np.poly1d(z)
-    ax.plot(targets, p(targets), 'g-', lw=2, label=f'Fit: y={z[0]:.2f}x+{z[1]:.2f}')
-    
-    # 标签文字
+    sorted_idx = np.argsort(targets)
+    ax.plot(targets[sorted_idx], p(targets[sorted_idx]), 'g-', lw=2.2,
+            label=f'Fit: y={z[0]:.2f}x+{z[1]:.2f}')
+
+    mae = np.mean(abs_errors)
+    rmse = np.sqrt(np.mean(errors ** 2))
+    corr = np.corrcoef(predictions, targets)[0, 1]
+    metrics_text = f'MAE={mae:.2f}\nRMSE={rmse:.2f}\nr={corr:.3f}'
+    ax.text(
+        0.03, 0.97, metrics_text,
+        transform=ax.transAxes, ha='left', va='top', fontsize=10,
+        bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.9, edgecolor='#cccccc')
+    )
+
     if has_chinese:
         ax.set_xlabel('真实年龄 (岁)', fontsize=12)
         ax.set_ylabel('预测年龄 (岁)', fontsize=12)
@@ -654,15 +685,19 @@ def plot_results(predictions, targets, output_dir, use_chinese=True):
         ax.set_ylabel('Predicted Age (years)', fontsize=12)
         ax.set_title('Predicted vs True Age', fontsize=14, fontweight='bold')
     ax.legend()
+    cbar = fig.colorbar(scatter, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label('绝对误差 (岁)' if has_chinese else 'Absolute Error (years)', fontsize=10)
     ax.grid(True, alpha=0.3)
-    
+
     # 右图：误差分布直方图
     ax = axes[1]
-    errors = predictions - targets
-    ax.hist(errors, bins=30, edgecolor='black', alpha=0.7)
+    sns.histplot(errors, bins=30, kde=True, ax=ax, color='cornflowerblue',
+                 edgecolor='white', alpha=0.85)
     ax.axvline(0, color='r', linestyle='--', lw=2, label='Zero Error')
-    ax.axvline(errors.mean(), color='g', linestyle='--', lw=2, 
+    ax.axvline(errors.mean(), color='g', linestyle='--', lw=2,
                label=f'Mean Error: {errors.mean():.2f}')
+    ax.axvline(np.median(errors), color='orange', linestyle=':', lw=2,
+               label=f'Median Error: {np.median(errors):.2f}')
     if has_chinese:
         ax.set_xlabel('预测误差 (岁)', fontsize=12)
         ax.set_ylabel('频数', fontsize=12)
@@ -673,26 +708,35 @@ def plot_results(predictions, targets, output_dir, use_chinese=True):
         ax.set_title('Error Distribution', fontsize=14, fontweight='bold')
     ax.legend()
     ax.grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
     plt.savefig(output_dir / 'evaluation_results.png', dpi=300, bbox_inches='tight')
     print(f'图表已保存: {output_dir / "evaluation_results.png"}')
     plt.close()
-    
+
     # 2. Bland-Altman图
     fig, ax = plt.subplots(figsize=(10, 6))
     mean_age = (predictions + targets) / 2
-    diff_age = predictions - targets
-    
-    ax.scatter(mean_age, diff_age, alpha=0.5, s=30)
-    ax.axhline(0, color='r', linestyle='-', lw=2, label='Mean Difference')
-    ax.axhline(diff_age.mean(), color='g', linestyle='--', lw=2, 
+    diff_age = errors
+    loa = 1.96 * diff_age.std()
+
+    ax.scatter(mean_age, diff_age, alpha=0.7, s=34, color='#4c72b0',
+               edgecolors='white', linewidths=0.4)
+    ax.axhline(0, color='r', linestyle='-', lw=1.8, label='Zero Difference')
+    ax.axhline(diff_age.mean(), color='g', linestyle='--', lw=2,
                label=f'Bias: {diff_age.mean():.2f}')
-    ax.axhline(diff_age.mean() + 1.96 * diff_age.std(), color='orange', 
+    ax.axhline(diff_age.mean() + loa, color='orange',
                linestyle='--', lw=2, label=f'±1.96 SD')
-    ax.axhline(diff_age.mean() - 1.96 * diff_age.std(), color='orange', 
+    ax.axhline(diff_age.mean() - loa, color='orange',
                linestyle='--', lw=2)
-    
+    ax.fill_between(
+        [mean_age.min(), mean_age.max()],
+        diff_age.mean() - loa,
+        diff_age.mean() + loa,
+        color='orange',
+        alpha=0.08
+    )
+
     if has_chinese:
         ax.set_xlabel('平均年龄 (岁)', fontsize=12)
         ax.set_ylabel('差异 (预测 - 真实, 岁)', fontsize=12)
@@ -703,45 +747,45 @@ def plot_results(predictions, targets, output_dir, use_chinese=True):
         ax.set_title('Bland-Altman Plot', fontsize=14, fontweight='bold')
     ax.legend()
     ax.grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
     plt.savefig(output_dir / 'bland_altman.png', dpi=300, bbox_inches='tight')
     print(f'图表已保存: {output_dir / "bland_altman.png"}')
     plt.close()
-    
+
     # 3. 年龄分段：真实年龄 vs 预测年龄对比柱状图
     age_group_mae = calculate_age_group_mae(predictions, targets, bin_width=10)
-    
+
     fig, ax = plt.subplots(figsize=(14, 7))
-    x = range(len(age_group_mae))
     labels = [g['age_range'] for g in age_group_mae]
     true_means = [g['true_mean'] for g in age_group_mae]
     pred_means = [g['pred_mean'] for g in age_group_mae]
     counts = [g['count'] for g in age_group_mae]
-    
-    # 分组柱状图：真实年龄 vs 预测年龄
-    width = 0.35
+
+    width = 0.38
     x_pos = np.arange(len(labels))
-    
-    bars1 = ax.bar(x_pos - width/2, true_means, width, 
+
+    bars1 = ax.bar(x_pos - width / 2, true_means, width,
                    label='真实年龄' if has_chinese else 'True Age',
-                   color='steelblue', alpha=0.8, edgecolor='black')
-    bars2 = ax.bar(x_pos + width/2, pred_means, width,
-                   label='预测年龄' if has_chinese else 'Predicted Age', 
-                   color='coral', alpha=0.8, edgecolor='black')
-    
-    # 标注样本数量
+                   color='#4c78a8', alpha=0.92, edgecolor='black', linewidth=0.8)
+    bars2 = ax.bar(x_pos + width / 2, pred_means, width,
+                   label='预测年龄' if has_chinese else 'Predicted Age',
+                   color='#f58518', alpha=0.88, edgecolor='black', linewidth=0.8)
+    annotate_bars(ax, bars1)
+    annotate_bars(ax, bars2)
+
     for i, (true_m, pred_m, count) in enumerate(zip(true_means, pred_means, counts)):
         max_height = max(true_m, pred_m)
-        ax.text(i, max_height + 1.5, f'n={count}',
+        delta = pred_m - true_m
+        ax.text(i, max_height + 4.0, f'n={count}',
                 ha='center', va='bottom', fontsize=9, color='gray')
-    
-    # 添加参考线（完美预测线）
-    ax.plot([-0.5, len(labels)-0.5], [-0.5, len(labels)-0.5],
-            'g--', alpha=0.3, linewidth=1.5, label='完美预测' if has_chinese else 'Perfect Prediction')
-    
+        ax.text(i, max_height + 2.1, f'Δ={delta:+.1f}',
+                ha='center', va='bottom', fontsize=9,
+                color='#1f6f5f' if delta <= 0 else '#a23b2a')
+
     ax.set_xticks(x_pos)
     ax.set_xticklabels(labels, rotation=45, ha='right')
+    ax.set_ylim(0, max(max(true_means), max(pred_means)) + 8)
     if has_chinese:
         ax.set_xlabel('年龄段 (岁)', fontsize=12)
         ax.set_ylabel('平均年龄 (岁)', fontsize=12)
@@ -750,15 +794,15 @@ def plot_results(predictions, targets, output_dir, use_chinese=True):
         ax.set_xlabel('Age Group (years)', fontsize=12)
         ax.set_ylabel('Mean Age (years)', fontsize=12)
         ax.set_title('True vs Predicted Age by Age Group', fontsize=14, fontweight='bold')
-    
-    ax.legend(loc='upper left', fontsize=10)
-    ax.grid(True, alpha=0.3, axis='y')
-    
+
+    ax.legend(loc='upper left', fontsize=10, frameon=True)
+    ax.grid(True, alpha=0.25, axis='y', linestyle='--')
+
     plt.tight_layout()
     plt.savefig(output_dir / 'age_group_comparison.png', dpi=300, bbox_inches='tight')
     print(f'图表已保存: {output_dir / "age_group_comparison.png"}')
     plt.close()
-    
+
     return age_group_mae
 
 
