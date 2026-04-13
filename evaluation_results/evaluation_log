@@ -1,4 +1,15 @@
-1.最新baseline性能测试
-2.旧版baseline性能测试
-3.baseline（18-88）性能测试
-4.0-18性能测试
+7.936 run_20260106_154254 Baseline
+8.438 run_20260107_144838 尝试用GM肌肉训练集
+8.514 run_20260107_144919 尝试BB肌肉训练集
+7.673 01_baseline_run_20260108_115437 01_baseline（仅图像）
+1.452 run_20260113_164941 尝试0-20岁的数据集进行训练
+8.619 run_20260114_104941 18-88+mse
+8.917 run_20260122_134040 基于17更换step优化器
+8.581 run_20260122_134412 第一阶段最优配置
+9.483 run_20260123_153036 无预训练权重，自己的zcore，colorjitter，探索最优超参搭配
+8.795 run_20260320_161531 age_mae_optuna_v2最佳超参结果（pretrained，loss=mae）ImageNet zscore
+8.384 run_20260320_170710 lambda_rtm探索（loss=rtm_huber，huber_delta=1.0，lambda_rtm=0.05）
+8.615 run_20260320_170717 lambda_rtm探索（loss=rtm_huber，huber_delta=1.0，lambda_rtm=0.1）
+9.018 run_20260320_170732 lambda_rtm探索（loss=rtm_huber，huber_delta=1.0，lambda_rtm=0.2）
+8.438 run_20260320_170806 lambda_rtm探索（loss=rtm_huber，huber_delta=1.0，lambda_rtm=0.5）
+9.085 run_20260320_170820 lambda_rtm探索（loss=rtm_huber，huber_delta=1.0，lambda_rtm=1.0）
