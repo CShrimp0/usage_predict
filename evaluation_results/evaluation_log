@@ -13,3 +13,6 @@
 9.018 run_20260320_170732 lambda_rtm探索（loss=rtm_huber，huber_delta=1.0，lambda_rtm=0.2）
 8.438 run_20260320_170806 lambda_rtm探索（loss=rtm_huber，huber_delta=1.0，lambda_rtm=0.5）
 9.085 run_20260320_170820 lambda_rtm探索（loss=rtm_huber，huber_delta=1.0，lambda_rtm=1.0）
+9.754 run_20260414_143523 usfm 冻结训练（bs=16, lr=1e-4）
+9.374 run_20260414_145556 usfm 全量微调（bs=8, lr=1e-5）
+8.619 run_20260414_145904 usfm 全量微调 batchsize16（bs=16, lr=1e-5）

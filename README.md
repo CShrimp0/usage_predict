@@ -35,9 +35,44 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
   --num-workers 8
 ```
 
+### USFM 训练（最小示例）
+```bash
+CUDA_VISIBLE_DEVICES=0 python train.py \
+  --model usfm \
+  --pretrained-path /path/to/USFM_latest.pth \
+  --freeze-backbone \
+  --batch-size 16 \
+  --dropout 0.5 \
+  --lr 0.0001 \
+  --weight-decay 0.0001 \
+  --loss mae \
+  --epochs 300 \
+  --patience 50 \
+  --image-size 224 \
+  --seed 42
+```
+
+### USFM + 辅助特征 Late Fusion
+```bash
+CUDA_VISIBLE_DEVICES=0 python train.py \
+  --model usfm \
+  --pretrained-path /path/to/USFM_latest.pth \
+  --freeze-backbone \
+  --use-aux-features \
+  --aux-gender \
+  --aux-bmi \
+  --aux-skewness \
+  --aux-intensity \
+  --aux-clarity \
+  --aux-hidden-dim 32
+```
+
 ### 评估模型
 ```bash
 # 基本评估（自动从checkpoint读取训练参数）
+python evaluate.py --checkpoint outputs/run_xxx/best_model.pth
+
+# 评估 USFM checkpoint
 python evaluate.py --checkpoint outputs/run_xxx/best_model.pth
 
 # 指定输出目录
@@ -182,6 +217,7 @@ python tools/analyze_error_samples.py --help
 - ConvNeXt-Tiny
 - MobileNetV3-Large
 - RegNet
+- USFM (Vision Transformer encoder adapter)
 
 ### 多模态Late Fusion（新功能）🆕
 

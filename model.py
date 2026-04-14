@@ -5,6 +5,14 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 
+from usfm_adapter import USFMEncoderAdapter
+
+
+def _freeze_module(module):
+    """冻结模块参数，保留外部回归头可训练。"""
+    for param in module.parameters():
+        param.requires_grad = False
+
 
 class AgePredictor(nn.Module):
     """基于ResNet50的年龄预测模型"""
@@ -164,6 +172,43 @@ class RegNetAgePredictor(nn.Module):
         return self.backbone(x).squeeze(-1)
 
 
+class USFMAgePredictor(nn.Module):
+    """基于 USFM encoder 的年龄回归模型。"""
+
+    def __init__(
+        self,
+        image_size=224,
+        pretrained_path=None,
+        dropout=0.5,
+        freeze_backbone=False,
+        global_pool='auto',
+    ):
+        super().__init__()
+
+        self.backbone = USFMEncoderAdapter(
+            image_size=image_size,
+            pretrained_path=pretrained_path,
+            global_pool=global_pool,
+        )
+        if freeze_backbone:
+            _freeze_module(self.backbone)
+
+        num_features = self.backbone.feature_dim
+        self.regression_head = nn.Sequential(
+            nn.Linear(num_features, 512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Linear(512, 128),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Linear(128, 1),
+        )
+
+    def forward(self, x):
+        features = self.backbone(x)
+        return self.regression_head(features).squeeze(-1)
+
+
 class FlexibleMultimodalModel(nn.Module):
     """
     灵活的多模态模型，支持动态辅助特征维度
@@ -179,7 +224,11 @@ class FlexibleMultimodalModel(nn.Module):
                  pretrained=True,
                  aux_input_dim=0,      # 辅助特征维度（0表示纯图像模型）
                  aux_hidden_dim=32,    # 辅助分支隐藏层维度
-                 dropout=0.5):
+                 dropout=0.5,
+                 image_size=224,
+                 pretrained_path=None,
+                 freeze_backbone=False,
+                 usfm_global_pool='auto'):
         """
         Args:
             backbone: CNN骨干网络名称
@@ -206,6 +255,15 @@ class FlexibleMultimodalModel(nn.Module):
             self.backbone = models.efficientnet_b0(pretrained=pretrained)
             self.backbone.classifier = nn.Identity()
             img_feat_dim = 1280
+        elif backbone == 'usfm':
+            self.backbone = USFMEncoderAdapter(
+                image_size=image_size,
+                pretrained_path=pretrained_path,
+                global_pool=usfm_global_pool,
+            )
+            if freeze_backbone:
+                _freeze_module(self.backbone)
+            img_feat_dim = self.backbone.feature_dim
         else:
             # 默认使用ResNet50
             self.backbone = models.resnet50(pretrained=pretrained)
@@ -255,6 +313,10 @@ class FlexibleMultimodalModel(nn.Module):
         
         # 如果有辅助特征，进行融合
         if self.aux_input_dim > 0 and aux_features is not None:
+            if aux_features.ndim != 2 or aux_features.size(1) != self.aux_input_dim:
+                raise ValueError(
+                    f"辅助特征维度不匹配: 期望 (B, {self.aux_input_dim})，实际为 {tuple(aux_features.shape)}"
+                )
             aux_feat = self.aux_branch(aux_features)  # (B, aux_hidden_dim)
             fused = torch.cat([img_feat, aux_feat], dim=1)  # (B, fusion_dim)
         else:
@@ -264,20 +326,25 @@ class FlexibleMultimodalModel(nn.Module):
         output = self.fusion_head(fused).squeeze(-1)  # (B,)
         return output
 
-
 def get_model(model_name='resnet50', pretrained=True, dropout=0.5, 
-              aux_input_dim=0, aux_hidden_dim=32):
+              aux_input_dim=0, aux_hidden_dim=32, image_size=224,
+              pretrained_path=None, freeze_backbone=False,
+              usfm_global_pool='auto'):
     """
     获取模型（支持多模态）
     
     Args:
-        model_name: 模型名称 ('resnet50', 'efficientnet', 'convnext_tiny', 
-                    'efficientnet_b1', 'mobilenet_v3', 'regnet')
+        model_name: 模型名称 ('resnet50', 'efficientnet', 'convnext_tiny',
+                    'efficientnet_b1', 'mobilenet_v3', 'regnet', 'usfm')
         pretrained: 是否使用预训练权重
         dropout: Dropout比例
         aux_input_dim: 辅助特征维度（0表示纯图像模型）
         aux_hidden_dim: 辅助特征分支隐藏层维度
-    
+        image_size: 输入图像尺寸
+        pretrained_path: USFM 预训练权重路径
+        freeze_backbone: 是否冻结图像主干（USFM 优先使用）
+        usfm_global_pool: USFM 特征池化方式
+
     Returns:
         模型实例
     """
@@ -288,7 +355,11 @@ def get_model(model_name='resnet50', pretrained=True, dropout=0.5,
             pretrained=pretrained,
             aux_input_dim=aux_input_dim,
             aux_hidden_dim=aux_hidden_dim,
-            dropout=dropout
+            dropout=dropout,
+            image_size=image_size,
+            pretrained_path=pretrained_path,
+            freeze_backbone=freeze_backbone,
+            usfm_global_pool=usfm_global_pool,
         )
     
     # 否则使用原始模型
@@ -296,7 +367,7 @@ def get_model(model_name='resnet50', pretrained=True, dropout=0.5,
         return AgePredictor(pretrained=pretrained, dropout=dropout)
     elif model_name == 'efficientnet' or model_name == 'efficientnet_b0':
         return EfficientNetAgePredictor(pretrained=pretrained, dropout=dropout)
-    elif model_name == 'convnext_tiny':
+    elif model_name == 'convnext_tiny' or model_name == 'convnext':
         return ConvNeXtAgePredictor(pretrained=pretrained, dropout=dropout)
     elif model_name == 'efficientnet_b1':
         return EfficientNetB1AgePredictor(pretrained=pretrained, dropout=dropout)
@@ -304,9 +375,17 @@ def get_model(model_name='resnet50', pretrained=True, dropout=0.5,
         return MobileNetV3AgePredictor(pretrained=pretrained, dropout=dropout)
     elif model_name == 'regnet':
         return RegNetAgePredictor(pretrained=pretrained, dropout=dropout)
+    elif model_name == 'usfm':
+        return USFMAgePredictor(
+            image_size=image_size,
+            pretrained_path=pretrained_path,
+            dropout=dropout,
+            freeze_backbone=freeze_backbone,
+            global_pool=usfm_global_pool,
+        )
     else:
         raise ValueError(f"Unknown model: {model_name}. Choose from: resnet50, efficientnet, "
-                        f"convnext_tiny, efficientnet_b1, mobilenet_v3, regnet")
+                        f"convnext_tiny, efficientnet_b1, mobilenet_v3, regnet, usfm")
 
 
 if __name__ == '__main__':

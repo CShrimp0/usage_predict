@@ -17,7 +17,7 @@ import cv2
 from PIL import Image
 from torchvision import transforms
 
-from dataset import load_dataset
+from dataset import load_dataset, load_multimodal_dataset
 from model import get_model
 
 
@@ -112,7 +112,7 @@ def get_mask_overlay(mask_path, raw_image):
 
 
 def generate_gradcam_visualization(model, device, sample_info, image_dir, mask_dir, 
-                                   output_path, sample_type='best'):
+                                   output_path, sample_type='best', image_size=224):
     """
     生成Grad-CAM热力图可视化
     
@@ -156,7 +156,7 @@ def generate_gradcam_visualization(model, device, sample_info, image_dir, mask_d
     
     # 预处理用于模型推理
     preprocess = transforms.Compose([
-        transforms.Resize((224, 224)),
+        transforms.Resize((image_size, image_size)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
@@ -240,9 +240,16 @@ def evaluate(model, test_loader, device, image_paths=None):
     all_targets = []
     
     with torch.no_grad():
-        for images, ages in tqdm(test_loader, desc='Evaluating'):
-            images = images.to(device)
-            outputs = model(images)
+        for batch in tqdm(test_loader, desc='Evaluating'):
+            if len(batch) == 3:
+                images, aux_features, ages = batch
+                images = images.to(device)
+                aux_features = aux_features.to(device)
+                outputs = model(images, aux_features)
+            else:
+                images, ages = batch
+                images = images.to(device)
+                outputs = model(images)
             
             all_preds.extend(outputs.cpu().numpy())
             all_targets.extend(ages.numpy())
@@ -830,6 +837,52 @@ def get_run_name_from_checkpoint(checkpoint_path):
         return parent.name
 
 
+def load_dataset_module(image_size=224, use_age_stratify=True, age_bin_width=10,
+                        use_multimodal=False, use_gender=False, use_bmi=False,
+                        use_skewness=False, use_intensity=False, use_clarity=False):
+    """与训练脚本保持一致的数据加载入口。"""
+    if use_multimodal:
+        def configured_load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1,
+                                   random_state=42, min_age=0, max_age=100):
+            return load_multimodal_dataset(
+                image_dir=image_dir,
+                excel_path=excel_path,
+                test_size=test_size,
+                val_size=val_size,
+                random_state=random_state,
+                image_size=image_size,
+                use_age_stratify=use_age_stratify,
+                age_bin_width=age_bin_width,
+                use_gender=use_gender,
+                use_bmi=use_bmi,
+                use_skewness=use_skewness,
+                use_intensity=use_intensity,
+                use_clarity=use_clarity,
+                min_age=min_age,
+                max_age=max_age,
+            )
+
+        return configured_load_dataset
+
+    def configured_load_dataset(image_dir, excel_path, test_size=0.2, val_size=0.1,
+                               random_state=42, min_age=0, max_age=100):
+        train_ds, val_ds, test_ds = load_dataset(
+            image_dir=image_dir,
+            excel_path=excel_path,
+            test_size=test_size,
+            val_size=val_size,
+            random_state=random_state,
+            image_size=image_size,
+            use_age_stratify=use_age_stratify,
+            age_bin_width=age_bin_width,
+            min_age=min_age,
+            max_age=max_age,
+        )
+        return train_ds, val_ds, test_ds, 0
+
+    return configured_load_dataset
+
+
 def main(args):
     """主评估函数"""
     # 设置设备
@@ -849,25 +902,56 @@ def main(args):
     age_bin_width = checkpoint.get('age_bin_width', train_args.get('age_bin_width', 10))
     min_age = checkpoint.get('min_age', train_args.get('min_age', args.min_age))
     max_age = checkpoint.get('max_age', train_args.get('max_age', args.max_age))
+    image_size = checkpoint.get('image_size', train_args.get('image_size', args.image_size))
+    model_name = args.model or checkpoint.get('model', train_args.get('model', 'resnet50'))
+    dropout = checkpoint.get('dropout', train_args.get('dropout', 0.5))
+    use_aux_features = checkpoint.get('use_aux_features', train_args.get('use_aux_features', False))
+    use_gender = train_args.get('aux_gender', False)
+    use_bmi = train_args.get('aux_bmi', False)
+    use_skewness = train_args.get('aux_skewness', False)
+    use_intensity = train_args.get('aux_intensity', False)
+    use_clarity = train_args.get('aux_clarity', False)
+    aux_hidden_dim = checkpoint.get('aux_hidden_dim', train_args.get('aux_hidden_dim', 32))
+    pretrained_path = (
+        args.pretrained_path
+        or checkpoint.get('pretrained_path')
+        or train_args.get('pretrained_path')
+    )
+    freeze_backbone = args.freeze_backbone or checkpoint.get('freeze_backbone', train_args.get('freeze_backbone', False))
+    usfm_global_pool = args.usfm_global_pool or checkpoint.get('usfm_global_pool', train_args.get('usfm_global_pool', 'auto'))
     
     print(f'\n⚠️  使用与训练一致的数据划分参数（防止数据泄漏）:')
     print(f'    test_size={test_size}, val_size={val_size}, seed={seed}')
     print(f'    use_age_stratify={use_age_stratify}, age_bin_width={age_bin_width}')
     print(f'    age_range={min_age}-{max_age}')
+    print(f'    image_size={image_size}, model={model_name}, use_aux_features={use_aux_features}')
     
     # 加载数据
     print('\n加载数据集...')
-    _, _, test_dataset = load_dataset(
-        args.image_dir, 
+    dataset_loader = load_dataset_module(
+        image_size=image_size,
+        use_age_stratify=use_age_stratify,
+        age_bin_width=age_bin_width,
+        use_multimodal=use_aux_features,
+        use_gender=use_gender,
+        use_bmi=use_bmi,
+        use_skewness=use_skewness,
+        use_intensity=use_intensity,
+        use_clarity=use_clarity,
+    )
+    _, _, test_dataset, aux_dim = dataset_loader(
+        args.image_dir,
         args.excel_path,
         test_size=test_size,
         val_size=val_size,
         random_state=seed,
-        use_age_stratify=use_age_stratify,
-        age_bin_width=age_bin_width,
         min_age=min_age,
         max_age=max_age
     )
+    if use_aux_features and checkpoint.get('aux_input_dim') not in (None, aux_dim):
+        raise ValueError(
+            f"checkpoint 记录的辅助特征维度 {checkpoint.get('aux_input_dim')} 与当前数据集恢复出的维度 {aux_dim} 不一致"
+        )
     
     # 获取测试集的image_paths用于误差分析
     test_image_paths = test_dataset.image_paths
@@ -881,12 +965,18 @@ def main(args):
         pin_memory=True
     )
     
-    # 创建模型
-    model_name = checkpoint.get('model', train_args.get('model', 'resnet50'))
-    dropout = checkpoint.get('dropout', train_args.get('dropout', 0.5))
-    
     print(f'\n创建模型: {model_name}, dropout={dropout}')
-    model = get_model(model_name, pretrained=False, dropout=dropout)
+    model = get_model(
+        model_name,
+        pretrained=False,
+        dropout=dropout,
+        aux_input_dim=aux_dim,
+        aux_hidden_dim=aux_hidden_dim,
+        image_size=image_size,
+        pretrained_path=None,
+        freeze_backbone=freeze_backbone,
+        usfm_global_pool=usfm_global_pool,
+    )
     model.load_state_dict(checkpoint['model_state_dict'])
     model = model.to(device)
     
@@ -941,8 +1031,15 @@ def main(args):
             "device": str(device)
         },
         "model_config": {
-            "architecture": train_args.get('model', 'resnet50'),
-            "dropout": train_args.get('dropout', 0.5),
+            "architecture": model_name,
+            "dropout": dropout,
+            "image_size": image_size,
+            "use_aux_features": bool(use_aux_features),
+            "aux_input_dim": int(aux_dim),
+            "aux_hidden_dim": int(aux_hidden_dim),
+            "pretrained_path": pretrained_path,
+            "freeze_backbone": bool(freeze_backbone),
+            "usfm_global_pool": usfm_global_pool,
             "best_epoch": checkpoint.get('epoch', 'N/A'),
             "val_mae": float(checkpoint.get('val_mae', 0.0))
         },
@@ -1088,7 +1185,8 @@ def main(args):
             model, device, best_sample, 
             args.image_dir, str(mask_dir) if mask_dir else args.image_dir,
             output_dir / 'gradcam_best_sample.png', 
-            sample_type='best'
+            sample_type='best',
+            image_size=image_size,
         )
         
         # 生成最差样本的Grad-CAM可视化
@@ -1097,7 +1195,8 @@ def main(args):
             model, device, worst_sample, 
             args.image_dir, str(mask_dir) if mask_dir else args.image_dir,
             output_dir / 'gradcam_worst_sample.png', 
-            sample_type='worst'
+            sample_type='worst',
+            image_size=image_size,
         )
     
     print('\n评估完成!')
@@ -1126,6 +1225,18 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=42, help='随机种子（默认从checkpoint读取）')
     parser.add_argument('--min-age', type=float, default=18, help='最小年龄（默认从checkpoint读取）')
     parser.add_argument('--max-age', type=float, default=100, help='最大年龄（默认从checkpoint读取）')
+    parser.add_argument('--image-size', type=int, default=224, choices=[224, 256],
+                       help='输入图像尺寸（默认从checkpoint读取）')
+    parser.add_argument('--model', type=str, default=None,
+                       choices=['resnet50', 'efficientnet_b0', 'efficientnet_b1', 'convnext', 'convnext_tiny', 'mobilenet_v3', 'regnet', 'usfm'],
+                       help='手动指定模型架构（默认从checkpoint读取）')
+    parser.add_argument('--pretrained-path', type=str, default=None,
+                       help='USFM预训练权重路径（默认从checkpoint读取；评估时通常可省略）')
+    parser.add_argument('--freeze-backbone', action='store_true',
+                       help='冻结主干参数（默认从checkpoint读取，评估时通常无影响）')
+    parser.add_argument('--usfm-global-pool', type=str, default=None,
+                       choices=['auto', 'avg', 'token'],
+                       help='USFM特征池化方式（默认从checkpoint读取）')
     
     # 评估参数
     parser.add_argument('--batch-size', type=int, default=32, help='批次大小')

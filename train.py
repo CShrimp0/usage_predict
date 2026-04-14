@@ -261,7 +261,12 @@ def generate_command_line(args):
         'seed': '随机种子',
         'use_age_stratify': '启用年龄分层抽样',
         'age_bin_width': '年龄分组宽度（岁）',
+        'min_age': '最小年龄（包含）',
+        'max_age': '最大年龄（包含）',
         'model': '模型架构',
+        'pretrained_path': 'USFM预训练权重路径',
+        'freeze_backbone': '冻结图像主干',
+        'usfm_global_pool': 'USFM特征池化方式',
         'loss': '损失函数类型',
         'lambda_rtm': 'RTM惩罚系数（仅rtm_huber）',
         'huber_delta': 'Huber损失delta参数',
@@ -289,6 +294,13 @@ def generate_command_line(args):
         'num_workers': '数据加载线程数',
         'no_save': '禁用训练输出保存',
         'no_horizontal_flip': '禁用水平翻转',
+        'use_aux_features': '启用辅助特征',
+        'aux_gender': '使用性别特征',
+        'aux_bmi': '使用BMI特征',
+        'aux_skewness': '使用偏度特征',
+        'aux_intensity': '使用平均灰度特征',
+        'aux_clarity': '使用清晰度特征',
+        'aux_hidden_dim': '辅助特征隐藏层维度',
         'use_ddp': '使用DDP分布式训练',
         'ensemble': '启用集成训练模式',
         'ensemble_models': '集成训练的模型列表',
@@ -301,6 +313,15 @@ def generate_command_line(args):
     # 模型参数
     cmd_parts.append(f'    --model {args.model} \\')
     cmd_parts.append(f'        # {param_descriptions.get("model", "")}')
+    if getattr(args, 'pretrained_path', None):
+        cmd_parts.append(f'    --pretrained-path "{args.pretrained_path}" \\')
+        cmd_parts.append(f'        # {param_descriptions.get("pretrained_path", "")}')
+    if getattr(args, 'freeze_backbone', False):
+        cmd_parts.append(f'    --freeze-backbone \\')
+        cmd_parts.append(f'        # {param_descriptions.get("freeze_backbone", "")}')
+    if getattr(args, 'usfm_global_pool', 'auto') != 'auto':
+        cmd_parts.append(f'    --usfm-global-pool {args.usfm_global_pool} \\')
+        cmd_parts.append(f'        # {param_descriptions.get("usfm_global_pool", "")}')
     
     # 训练核心参数
     cmd_parts.append(f'    --batch-size {args.batch_size} \\')
@@ -367,6 +388,10 @@ def generate_command_line(args):
     cmd_parts.append(f'        # {param_descriptions.get("test_size", "")}')
     cmd_parts.append(f'    --val-size {args.val_size} \\')
     cmd_parts.append(f'        # {param_descriptions.get("val_size", "")}')
+    cmd_parts.append(f'    --min-age {args.min_age} \\')
+    cmd_parts.append(f'        # {param_descriptions.get("min_age", "")}')
+    cmd_parts.append(f'    --max-age {args.max_age} \\')
+    cmd_parts.append(f'        # {param_descriptions.get("max_age", "")}')
     
     # 路径参数（非默认才显示）
     if args.image_dir != '/home/szdx/LNX/data/TA/Healthy/Images':
@@ -394,6 +419,26 @@ def generate_command_line(args):
     if hasattr(args, 'use_ema') and args.use_ema:
         cmd_parts.append(f'    --use-ema \\')
         cmd_parts.append(f'        # {param_descriptions.get("use_ema", "")}')
+    if hasattr(args, 'use_aux_features') and args.use_aux_features:
+        cmd_parts.append(f'    --use-aux-features \\')
+        cmd_parts.append(f'        # {param_descriptions.get("use_aux_features", "")}')
+        if args.aux_gender:
+            cmd_parts.append(f'    --aux-gender \\')
+            cmd_parts.append(f'        # {param_descriptions.get("aux_gender", "")}')
+        if args.aux_bmi:
+            cmd_parts.append(f'    --aux-bmi \\')
+            cmd_parts.append(f'        # {param_descriptions.get("aux_bmi", "")}')
+        if args.aux_skewness:
+            cmd_parts.append(f'    --aux-skewness \\')
+            cmd_parts.append(f'        # {param_descriptions.get("aux_skewness", "")}')
+        if args.aux_intensity:
+            cmd_parts.append(f'    --aux-intensity \\')
+            cmd_parts.append(f'        # {param_descriptions.get("aux_intensity", "")}')
+        if args.aux_clarity:
+            cmd_parts.append(f'    --aux-clarity \\')
+            cmd_parts.append(f'        # {param_descriptions.get("aux_clarity", "")}')
+        cmd_parts.append(f'    --aux-hidden-dim {args.aux_hidden_dim} \\')
+        cmd_parts.append(f'        # {param_descriptions.get("aux_hidden_dim", "")}')
     
     # DDP参数
     if hasattr(args, 'use_ddp') and args.use_ddp:
@@ -920,7 +965,13 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False, reporter=None):
             'model': {
                 'architecture': args.model,
                 'pretrained': args.pretrained,
+                'pretrained_path': args.pretrained_path,
+                'freeze_backbone': args.freeze_backbone,
+                'usfm_global_pool': args.usfm_global_pool,
                 'dropout': args.dropout,
+                'image_size': args.image_size,
+                'aux_input_dim': int(aux_dim),
+                'aux_hidden_dim': args.aux_hidden_dim if hasattr(args, 'aux_hidden_dim') else 32,
                 'output_dim': 1,
                 'task': 'age_regression',
                 'description': f'{args.model} with dropout={args.dropout}, pretrained={args.pretrained}',
@@ -1066,22 +1117,26 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False, reporter=None):
     current_model = model_name if model_name else args.model
     if is_main_process:
         print(f'创建模型: {current_model}')
-    
-    # 计算辅助特征维度
-    aux_dim = 0
-    if hasattr(args, 'use_aux_features') and args.use_aux_features:
-        if args.aux_gender: aux_dim += 2
-        if args.aux_bmi: aux_dim += 1
-        if args.aux_skewness: aux_dim += 1
-        if args.aux_intensity: aux_dim += 1
-        if args.aux_clarity: aux_dim += 1
-        if is_main_process:
-            print(f'使用辅助特征，总维度: {aux_dim}')
+
+    if is_main_process and aux_dim > 0:
+        print(f'使用辅助特征，总维度: {aux_dim}')
+
+    if current_model == 'usfm' and not args.pretrained_path:
+        raise ValueError('--model usfm 时必须提供 --pretrained-path，用于加载官方 USFM 预训练权重')
     
     if is_main_process:
         print('准备将模型加载到设备...')
-    model = get_model(current_model, pretrained=args.pretrained, dropout=args.dropout,
-                     aux_input_dim=aux_dim, aux_hidden_dim=args.aux_hidden_dim if hasattr(args, 'aux_hidden_dim') else 32)
+    model = get_model(
+        current_model,
+        pretrained=args.pretrained,
+        dropout=args.dropout,
+        aux_input_dim=aux_dim,
+        aux_hidden_dim=args.aux_hidden_dim if hasattr(args, 'aux_hidden_dim') else 32,
+        image_size=args.image_size,
+        pretrained_path=args.pretrained_path,
+        freeze_backbone=args.freeze_backbone,
+        usfm_global_pool=args.usfm_global_pool,
+    )
     model = model.to(device)
     if is_main_process:
         print('模型已加载到设备')
@@ -1257,6 +1312,22 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False, reporter=None):
                             ema.apply_to(model_to_save)
                         torch.save({
                             'epoch': epoch,
+                            'model': current_model,
+                            'dropout': float(args.dropout),
+                            'image_size': int(args.image_size),
+                            'test_size': float(args.test_size),
+                            'val_size': float(args.val_size),
+                            'seed': int(args.seed),
+                            'use_age_stratify': True,
+                            'age_bin_width': int(args.age_bin_width),
+                            'min_age': float(args.min_age),
+                            'max_age': float(args.max_age),
+                            'use_aux_features': bool(use_aux),
+                            'aux_input_dim': int(aux_dim),
+                            'aux_hidden_dim': int(args.aux_hidden_dim if hasattr(args, 'aux_hidden_dim') else 32),
+                            'pretrained_path': args.pretrained_path,
+                            'freeze_backbone': bool(args.freeze_backbone),
+                            'usfm_global_pool': args.usfm_global_pool,
                             'model_state_dict': model_to_save.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
                             'val_mae': val_mae,
@@ -1278,6 +1349,22 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False, reporter=None):
                             ema.apply_to(model_to_save)
                         torch.save({
                             'epoch': epoch,
+                            'model': current_model,
+                            'dropout': float(args.dropout),
+                            'image_size': int(args.image_size),
+                            'test_size': float(args.test_size),
+                            'val_size': float(args.val_size),
+                            'seed': int(args.seed),
+                            'use_age_stratify': True,
+                            'age_bin_width': int(args.age_bin_width),
+                            'min_age': float(args.min_age),
+                            'max_age': float(args.max_age),
+                            'use_aux_features': bool(use_aux),
+                            'aux_input_dim': int(aux_dim),
+                            'aux_hidden_dim': int(args.aux_hidden_dim if hasattr(args, 'aux_hidden_dim') else 32),
+                            'pretrained_path': args.pretrained_path,
+                            'freeze_backbone': bool(args.freeze_backbone),
+                            'usfm_global_pool': args.usfm_global_pool,
                             'model_state_dict': model_to_save.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
                             'val_mae': val_mae,
@@ -1285,7 +1372,8 @@ def train(args, model_name=None, gpu_id=None, is_ensemble=False, reporter=None):
                             'loss_name': args.loss.lower(),
                             'lambda_rtm': float(args.lambda_rtm),
                             'train_age_mean': float(train_age_mean),
-                            'train_age_std': float(train_age_std)
+                            'train_age_std': float(train_age_std),
+                            'args': vars(args),
                         }, checkpoint_path)
                         if ema is not None:
                             ema.restore(model_to_save)
@@ -1510,7 +1598,7 @@ def create_arg_parser():
     
     # 模型参数
     parser.add_argument('--model', type=str, default='resnet50', 
-                       choices=['resnet50', 'efficientnet_b0', 'efficientnet_b1', 'convnext', 'mobilenet_v3', 'regnet'],
+                       choices=['resnet50', 'efficientnet_b0', 'efficientnet_b1', 'convnext', 'convnext_tiny', 'mobilenet_v3', 'regnet', 'usfm'],
                        help='模型架构')
     parser.add_argument('--loss', type=str, default='mae',
                        choices=['mae', 'mse', 'smoothl1', 'huber', 'rtm_huber'],
@@ -1527,6 +1615,13 @@ def create_arg_parser():
     parser.add_argument('--pretrained', action='store_true', default=True,
                        help='使用ImageNet预训练权重')
     parser.add_argument('--dropout', type=float, default=0.5, help='Dropout比例')
+    parser.add_argument('--pretrained-path', type=str, default=None,
+                       help='USFM预训练权重路径（--model usfm 时必填）')
+    parser.add_argument('--freeze-backbone', action='store_true',
+                       help='冻结图像主干参数（USFM 可选）')
+    parser.add_argument('--usfm-global-pool', type=str, default='auto',
+                       choices=['auto', 'avg', 'token'],
+                       help='USFM特征池化方式')
     
     # 多模态特征参数
     parser.add_argument('--use-aux-features', action='store_true', 
